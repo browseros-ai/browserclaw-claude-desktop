@@ -9,17 +9,18 @@
  *   node scripts/smoke.js                # auto-discovers BrowserOS
  *   BROWSEROS_URL_OVERRIDE=... node scripts/smoke.js
  *
- * What it does:
- *   1. Happy path: spawn the wrapper, do initialize, list tools, call
+ * What it does (sad first so contributors without BrowserOS still verify
+ * the disconnect-error wiring before the happy path can fail):
+ *   1. Sad path: spawn the wrapper with BROWSEROS_URL_OVERRIDE pointed at
+ *      port 1 (intentionally dead). Asserts:
+ *        - tools/list returns an empty array
+ *        - tools/call returns isError: true with the down message
+ *
+ *   2. Happy path: spawn the wrapper, do initialize, list tools, call
  *      navigate("https://browseros.com"). Asserts:
  *        - initialize returns serverInfo and capabilities
  *        - tools/list contains at least one tool
  *        - tools/call returns a non-error result
- *
- *   2. Sad path: spawn the wrapper with BROWSEROS_URL_OVERRIDE pointed at
- *      port 1 (intentionally dead). Asserts:
- *        - tools/list returns an empty array
- *        - tools/call returns isError: true with the down message
  *
  * Exit 0 on all assertions passing, non-zero on the first failure.
  */
@@ -197,8 +198,9 @@ async function sadPath() {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  await happyPath()
+  // sad first: independent of whether BrowserOS is installed on this machine.
   await sadPath()
+  await happyPath()
   console.log('[smoke] PASS')
 }
 

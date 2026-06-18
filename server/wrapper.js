@@ -99,11 +99,31 @@ async function tryOpenInner(version) {
 }
 
 /**
+ * Single-flight reconnect: concurrent callers share one in-flight
+ * `tryOpenInner` so we never end up with multiple live MCP Clients pointing at
+ * the same BrowserOS instance, each holding an open HTTP transport. The first
+ * caller to find `state.inner === null` creates the promise on `state.reconnect`
+ * and stores its resolved value into `state.inner`. Subsequent callers that
+ * race in await the same promise. `.finally()` clears `state.reconnect` after
+ * the promise settles so the next disconnect can trigger a fresh attempt.
+ */
+async function getOrOpenInner(state, version) {
+  if (state.inner) return state.inner
+  if (!state.reconnect) {
+    state.reconnect = tryOpenInner(version).finally(() => {
+      state.reconnect = null
+    })
+  }
+  const inner = await state.reconnect
+  // Both racing callers will reach this line and idempotently set the same
+  // resolved value; assignment is intentional.
+  state.inner = inner
+  return inner
+}
+
+/**
  * Run `op` against the current inner client, with one transparent reconnect
  * attempt on transport failure. Returns the inner client's response.
- *
- * `state` is mutated in place: `state.inner` is closed and replaced on the
- * reconnect path so subsequent calls reuse the fresh connection.
  *
  * Throws if both the first call and the post-reconnect retry fail.
  */
@@ -113,18 +133,19 @@ async function callWithReconnect(state, version, op) {
       return await op(state.inner)
     } catch (err) {
       logError('inner call failed, will try reconnect', err)
-      try {
-        await state.inner.close()
-      } catch {}
+      const stale = state.inner
       state.inner = null
+      try {
+        await stale.close()
+      } catch {}
     }
   }
 
-  state.inner = await tryOpenInner(version)
-  if (!state.inner) {
+  const inner = await getOrOpenInner(state, version)
+  if (!inner) {
     throw new TransportConnectError(BROWSEROS_DOWN_MESSAGE)
   }
-  return await op(state.inner)
+  return await op(inner)
 }
 
 // ---------------------------------------------------------------------------
