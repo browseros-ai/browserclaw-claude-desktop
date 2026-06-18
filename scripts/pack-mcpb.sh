@@ -34,7 +34,10 @@ rm -f "$OUT"
 # resolution needs node_modules next to the entry point. We do NOT ship dev
 # tooling.
 echo "Installing production dependencies..."
-npm install --omit=dev --no-audit --no-fund --silent
+# --loglevel=warn (not --silent) so resolve / download failures still surface
+# their reason. set -euo pipefail at the top would abort on a non-zero exit
+# regardless, but the operator needs to see why.
+npm install --omit=dev --no-audit --no-fund --loglevel=warn
 
 # .mcpb is a ZIP. Include only what the runtime needs.
 # Excludes: build artifacts, git metadata, dev scripts, editor cruft.

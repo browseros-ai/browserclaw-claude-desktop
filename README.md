@@ -104,7 +104,7 @@ Use this loop to test changes end-to-end against a real Claude Desktop install. 
 ./scripts/pack-mcpb.sh
 
 # 2. Open Claude Desktop's settings, then drag the file onto the window:
-open -R build/browseros-0.1.0.mcpb
+open -R "build/browseros-$(jq -r '.version' manifest.json).mcpb"
 ```
 
 Claude Desktop registers the extension, spawns `server/wrapper.js` from inside the unpacked archive, and starts forwarding tool calls to your local BrowserOS app.
