@@ -1,0 +1,77 @@
+name: Release
+
+# Build the .mcpb archive when a release tag is pushed (e.g. v0.1.0) and
+# attach it to a new GitHub Release. The pack script and Node toolchain
+# replicate the dev-machine setup; the workflow is intentionally thin so
+# anything that builds locally also builds in CI.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party and first-party actions are pinned to immutable commit
+      # SHAs (not tags) so a supply-chain compromise of the upstream repo
+      # cannot silently change what runs at release time. Comments record
+      # the human-readable version each SHA represents; Dependabot can
+      # bump these in place.
+
+      - name: Check out repo at tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          # Warm the npm cache from package-lock.json so re-releases skip
+          # the cold install. Harmless before PR #3 lands; the cache simply
+          # has nothing to restore on the first run.
+          cache: 'npm'
+
+      - name: Verify tag matches manifest.json version
+        # Tag must equal "v" + manifest.json's `version`. Catches the
+        # common mistake of tagging without bumping the manifest, which
+        # would produce an archive named after the manifest version
+        # rather than the tag and confuse Claude Desktop's update flow.
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(jq -r '.version' manifest.json)
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (version ${TAG_VERSION}) does not match manifest.json version ${MANIFEST_VERSION}. Bump manifest.json and re-tag."
+            exit 1
+          fi
+          echo "Tag and manifest agree on ${MANIFEST_VERSION}."
+
+      - name: Install production dependencies and pack .mcpb
+        run: ./scripts/pack-mcpb.sh
+
+      - name: Confirm archive exists
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' manifest.json)
+          ARCHIVE="build/browseros-${VERSION}.mcpb"
+          if [ ! -f "${ARCHIVE}" ]; then
+            echo "::error::Expected archive ${ARCHIVE} not found."
+            exit 1
+          fi
+          SIZE=$(du -h "${ARCHIVE}" | cut -f1)
+          echo "Built ${ARCHIVE} (${SIZE})."
+
+      - name: Create GitHub Release and upload archive
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: build/browseros-*.mcpb
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          # Mark prereleases when the tag has a -suffix (e.g. v0.1.0-rc.1)
+          # so users on the stable channel are not nudged to install them.
+          prerelease: ${{ contains(github.ref_name, '-') }}
