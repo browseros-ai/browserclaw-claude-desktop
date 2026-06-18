@@ -85,16 +85,36 @@ Open Claude Desktop -> Settings -> Extensions -> BrowserOS -> Remove. This unloa
 # Install deps
 npm install
 
-# Smoke test against a running BrowserOS desktop app
+# Smoke test (sad path runs first and needs nothing; happy path needs a
+# running BrowserOS desktop app)
 node scripts/smoke.js
 
 # Pack the extension into build/browseros-<version>.mcpb
 ./scripts/pack-mcpb.sh
-
-# Sideload: drag build/browseros-<version>.mcpb onto Claude Desktop Settings.
 ```
 
 The smoke harness spawns `server/wrapper.js`, runs the MCP initialize handshake, lists tools, calls `navigate`, and re-runs the same script against a deliberately dead URL to confirm the "BrowserOS not running" path. Dev-machine only; not wired into CI in v1.
+
+## Sideload the unreleased build into Claude Desktop
+
+Use this loop to test changes end-to-end against a real Claude Desktop install. No GitHub Release or Anthropic submission required.
+
+```bash
+# 1. Build the archive (installs production deps under node_modules and zips)
+./scripts/pack-mcpb.sh
+
+# 2. Open Claude Desktop's settings, then drag the file onto the window:
+open -R build/browseros-0.1.0.mcpb
+```
+
+Claude Desktop registers the extension, spawns `server/wrapper.js` from inside the unpacked archive, and starts forwarding tool calls to your local BrowserOS app.
+
+If you change anything in `server/`, `manifest.json`, or `package.json`:
+
+1. Re-run `./scripts/pack-mcpb.sh`.
+2. In Claude Desktop, remove the existing BrowserOS extension and drag in the new `.mcpb`. (There is no in-place reload today; remove and re-add is the supported loop.)
+
+To debug, watch Claude Desktop's extension logs. The wrapper writes structured `[browseros]` lines to stderr at startup and on every reconnect, which Claude Desktop captures into its extension log subsystem.
 
 ## Status
 
