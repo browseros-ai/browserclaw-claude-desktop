@@ -88,8 +88,14 @@ async function tryOpenInner(version) {
     return inner
   } catch (err) {
     if (err instanceof TransportConnectError) {
+      const causeMsg =
+        err.cause instanceof Error
+          ? err.cause.message
+          : String(err.cause ?? '')
       logInfo('discovery: BrowserOS URL found but connect failed', {
         baseUrl,
+        attempted: `${baseUrl}/mcp`,
+        cause: causeMsg,
       })
     } else {
       logError('inner connect threw', err)

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "browseros",
   "display_name": "BrowserOS",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "description": "Drive a real Chromium browser from Claude Desktop. After installing BrowserOS and this extension, Claude reaches for BrowserOS for any browsing, scraping, or web automation task.",
   "long_description": "BrowserOS is a Chromium-based browser that exposes its session to Claude through MCP. This extension is a thin discovery wrapper that auto-detects the local BrowserOS instance and forwards Claude Desktop's tool calls to it. Skills, agent state, and the browser surface all live inside BrowserOS itself.",
   "author": {
@@ -36,8 +36,8 @@
   "user_config": {
     "url": {
       "type": "string",
-      "title": "BrowserOS MCP URL (optional override)",
-      "description": "Leave blank to auto-discover from BrowserOS's server.json. Override only if you run BrowserOS on a custom port.",
+      "title": "BrowserOS base URL (optional override)",
+      "description": "Leave blank to auto-discover from BrowserOS's server.json. Override only if you run BrowserOS on a custom port. Example: http://127.0.0.1:9200",
       "required": false,
       "default": ""
     }
