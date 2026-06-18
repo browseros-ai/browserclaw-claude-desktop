@@ -29,17 +29,32 @@ OUT="$BUILD_DIR/browseros-$VERSION.mcpb"
 mkdir -p "$BUILD_DIR"
 rm -f "$OUT"
 
-# .mcpb is a ZIP. Include only the files that need to ship.
-# Excludes: build artifacts, git metadata, node dev tooling, editor cruft.
+# Install production dependencies so node_modules is present in the archive.
+# Claude Desktop spawns `node server/wrapper.js` directly and Node's module
+# resolution needs node_modules next to the entry point. We do NOT ship dev
+# tooling.
+echo "Installing production dependencies..."
+# --loglevel=warn (not --silent) so resolve / download failures still surface
+# their reason. set -euo pipefail at the top would abort on a non-zero exit
+# regardless, but the operator needs to see why.
+npm install --omit=dev --no-audit --no-fund --loglevel=warn
+
+# .mcpb is a ZIP. Include only what the runtime needs.
+# Excludes: build artifacts, git metadata, dev scripts, editor cruft.
 zip -r "$OUT" \
   manifest.json \
   package.json \
+  package-lock.json \
   README.md \
   LICENSE \
   icon.png \
   server \
+  node_modules \
   -x "*/.gitkeep" \
   -x "*.DS_Store" \
+  -x "node_modules/.bin/*" \
+  -x "node_modules/.cache/*" \
   >/dev/null
 
-echo "Packed: $OUT"
+SIZE=$(du -h "$OUT" | cut -f1)
+echo "Packed: $OUT ($SIZE)"
