@@ -37,7 +37,7 @@
     "url": {
       "type": "string",
       "title": "BrowserOS base URL (optional override)",
-      "description": "Leave blank in normal use. The extension auto-discovers BrowserOS from ~/.browseros/server.json. Set this only if BrowserOS runs on a non-default host or port. Enter the BASE URL with no path, for example http://127.0.0.1:9200. Do not append /mcp; the extension adds it automatically.",
+      "description": "Leave blank to auto-discover from BrowserOS's server.json. Override only if you run BrowserOS on a custom port. Example: http://127.0.0.1:9200",
       "required": false,
       "default": ""
     }
