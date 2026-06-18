@@ -22,7 +22,13 @@ const PROBE_TIMEOUT_MS = 1000
  */
 function normalizeUrl(raw) {
   if (typeof raw !== 'string' || raw.length === 0) return null
-  const trimmed = raw.trim().replace(/\/+$/, '')
+  let trimmed = raw.trim().replace(/\/+$/, '')
+  // Forgive a paste of the full MCP endpoint. openInnerClient appends "/mcp"
+  // when it opens the transport; keeping a trailing "/mcp" on the base would
+  // 404 with no diagnostic for the user.
+  if (/\/mcp$/i.test(trimmed)) {
+    trimmed = trimmed.slice(0, -4)
+  }
   try {
     const parsed = new URL(trimmed)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null

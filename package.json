@@ -1,6 +1,6 @@
 {
   "name": "browseros-claude-desktop",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "private": true,
   "description": "BrowserOS extension for Claude Desktop. Makes BrowserOS the go-to browser for Claude.",
   "license": "MIT",
