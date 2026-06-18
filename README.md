@@ -66,26 +66,35 @@ Open Claude Desktop -> Settings -> Extensions -> BrowserOS -> Remove. This unloa
 
 ```
 .
-├── manifest.json           # Claude Desktop extension manifest
-├── package.json            # Node deps for the wrapper
+├── manifest.json              # Claude Desktop extension manifest
+├── package.json               # Node deps for the wrapper
 ├── server/
-│   └── wrapper.js          # discovery + stdio<->HTTP proxy (added in a follow-up PR)
+│   ├── wrapper.js             # entry point: stdio MCP server, forwards to BrowserOS
+│   ├── transport.js           # inner Client + Streamable HTTP transport
+│   └── discovery.js           # resolve BrowserOS base URL (env, server.json, port probe)
 ├── scripts/
-│   └── pack-mcpb.sh        # build the .mcpb archive
-├── icon.png                # added in a follow-up PR
+│   ├── pack-mcpb.sh           # build the .mcpb archive
+│   └── smoke.js               # dev-machine E2E harness against the wrapper
+├── icon.png                   # added in a follow-up PR
 └── README.md
 ```
-
-The discovery wrapper itself is the next PR. This PR sets up the repo skeleton.
 
 ## Development
 
 ```bash
+# Install deps
+npm install
+
+# Smoke test against a running BrowserOS desktop app
+node scripts/smoke.js
+
 # Pack the extension into build/browseros-<version>.mcpb
 ./scripts/pack-mcpb.sh
 
 # Sideload: drag build/browseros-<version>.mcpb onto Claude Desktop Settings.
 ```
+
+The smoke harness spawns `server/wrapper.js`, runs the MCP initialize handshake, lists tools, calls `navigate`, and re-runs the same script against a deliberately dead URL to confirm the "BrowserOS not running" path. Dev-machine only; not wired into CI in v1.
 
 ## Status
 

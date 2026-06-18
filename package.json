@@ -13,14 +13,17 @@
   "bugs": {
     "url": "https://github.com/browseros-ai/browseros-claude-desktop/issues"
   },
+  "type": "module",
   "main": "server/wrapper.js",
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "pack": "scripts/pack-mcpb.sh",
+    "smoke": "node scripts/smoke.js",
     "test": "echo \"no tests yet\" && exit 0"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
 }
