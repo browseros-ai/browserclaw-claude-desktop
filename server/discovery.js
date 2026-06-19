@@ -70,11 +70,18 @@ async function probeHealth(baseUrl) {
 }
 
 async function fromCommonPorts() {
-  for (const port of COMMON_PORTS) {
-    const candidate = `http://127.0.0.1:${port}`
-    if (await probeHealth(candidate)) return candidate
-  }
-  return null
+  // Probe candidates in parallel so a fully-offline poll waits ~1s (the
+  // single PROBE_TIMEOUT_MS) instead of the sum of all timeouts. probeHealth
+  // returns false on failure rather than rejecting, so Promise.any is not
+  // the right primitive; Promise.all + first-truthy preserves the
+  // port-priority order from COMMON_PORTS by index.
+  const results = await Promise.all(
+    COMMON_PORTS.map(async (port) => {
+      const candidate = `http://127.0.0.1:${port}`
+      return (await probeHealth(candidate)) ? candidate : null
+    }),
+  )
+  return results.find(Boolean) ?? null
 }
 
 /**

@@ -73,18 +73,34 @@ async function readWrapperVersion() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Emit a discovery-outcome log line only when the outcome key changes.
+ * Without this, a long offline period would spam stderr with one
+ * identical line per Claude Desktop poll, since callers re-enter
+ * tryOpenInner on every request that finds state.inner === null.
+ */
+function logDiscoveryOutcome(state, msg, extra) {
+  const key = extra === undefined ? msg : `${msg}|${JSON.stringify(extra)}`
+  if (state.lastDiscoveryLog === key) return
+  state.lastDiscoveryLog = key
+  logInfo(msg, extra)
+}
+
+/**
  * Try to discover BrowserOS and open the inner client. Never throws. Returns
  * the handle on success, null on failure (caller decides what to surface).
  */
-async function tryOpenInner(version) {
+async function tryOpenInner(state, version) {
   const baseUrl = await discoverBaseUrl()
   if (!baseUrl) {
-    logInfo('discovery: no BrowserOS URL found')
+    logDiscoveryOutcome(state, 'discovery: no BrowserOS URL found')
     return null
   }
   try {
     const inner = await openInnerClient(baseUrl, version)
-    logInfo('connected to BrowserOS', { baseUrl, serverInfo: inner.serverInfo })
+    logDiscoveryOutcome(state, 'connected to BrowserOS', {
+      baseUrl,
+      serverInfo: inner.serverInfo,
+    })
     return inner
   } catch (err) {
     if (err instanceof TransportConnectError) {
@@ -92,11 +108,15 @@ async function tryOpenInner(version) {
         err.cause instanceof Error
           ? err.cause.message
           : String(err.cause ?? '')
-      logInfo('discovery: BrowserOS URL found but connect failed', {
-        baseUrl,
-        attempted: `${baseUrl}/mcp`,
-        cause: causeMsg,
-      })
+      logDiscoveryOutcome(
+        state,
+        'discovery: BrowserOS URL found but connect failed',
+        {
+          baseUrl,
+          attempted: `${baseUrl}/mcp`,
+          cause: causeMsg,
+        },
+      )
     } else {
       logError('inner connect threw', err)
     }
@@ -116,7 +136,7 @@ async function tryOpenInner(version) {
 async function getOrOpenInner(state, version) {
   if (state.inner) return state.inner
   if (!state.reconnect) {
-    state.reconnect = tryOpenInner(version).finally(() => {
+    state.reconnect = tryOpenInner(state, version).finally(() => {
       state.reconnect = null
     })
   }
@@ -141,6 +161,11 @@ async function callWithReconnect(state, version, op) {
       logError('inner call failed, will try reconnect', err)
       const stale = state.inner
       state.inner = null
+      // Clear the dedup key so a successful reconnect logs the new
+      // "connected to BrowserOS" line even when the URL+serverInfo are
+      // identical to the previous connect (the common case for a
+      // transient transport blip).
+      state.lastDiscoveryLog = undefined
       try {
         await stale.close()
       } catch {}
@@ -244,10 +269,14 @@ async function main() {
   const version = await readWrapperVersion()
   logInfo('starting', { version })
 
-  const initialInner = await tryOpenInner(version)
-  const state = { inner: initialInner }
+  const state = { inner: null }
+  state.inner = await tryOpenInner(state, version)
 
-  const server = buildOuterServer({ initialInner, version, state })
+  const server = buildOuterServer({
+    initialInner: state.inner,
+    version,
+    state,
+  })
   installSignalHandlers(state, server)
 
   await server.connect(new StdioServerTransport())
