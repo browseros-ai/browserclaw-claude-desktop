@@ -161,6 +161,11 @@ async function callWithReconnect(state, version, op) {
       logError('inner call failed, will try reconnect', err)
       const stale = state.inner
       state.inner = null
+      // Clear the dedup key so a successful reconnect logs the new
+      // "connected to BrowserOS" line even when the URL+serverInfo are
+      // identical to the previous connect (the common case for a
+      // transient transport blip).
+      state.lastDiscoveryLog = undefined
       try {
         await stale.close()
       } catch {}
