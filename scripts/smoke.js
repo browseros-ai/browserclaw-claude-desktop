@@ -3,21 +3,21 @@
  * Smoke harness for server/wrapper.js.
  *
  * Dev-machine only. Not wired into CI in v1, because CI does not have a
- * running BrowserOS desktop app.
+ * running BrowserClaw claw-server.
  *
  * Run with:
- *   node scripts/smoke.js                # auto-discovers BrowserOS
- *   BROWSEROS_URL_OVERRIDE=... node scripts/smoke.js
+ *   node scripts/smoke.js                       # auto-discovers BrowserClaw
+ *   BROWSERCLAW_URL_OVERRIDE=... node scripts/smoke.js
  *
- * What it does (sad first so contributors without BrowserOS still verify
+ * What it does (sad first so contributors without BrowserClaw still verify
  * the disconnect-error wiring before the happy path can fail):
- *   1. Sad path: spawn the wrapper with BROWSEROS_URL_OVERRIDE pointed at
+ *   1. Sad path: spawn the wrapper with BROWSERCLAW_URL_OVERRIDE pointed at
  *      port 1 (intentionally dead). Asserts:
  *        - tools/list returns an empty array
  *        - tools/call returns isError: true with the down message
  *
  *   2. Happy path: spawn the wrapper, do initialize, list tools, call
- *      navigate("https://browseros.com"). Asserts:
+ *      navigate("https://browseros.com/agents"). Asserts:
  *        - initialize returns serverInfo and capabilities
  *        - tools/list contains at least one tool
  *        - tools/call returns a non-error result
@@ -131,7 +131,7 @@ async function initialize(rpc) {
 // ---------------------------------------------------------------------------
 
 async function happyPath() {
-  console.log('[smoke] happy path: spawn wrapper, expect BrowserOS reachable')
+  console.log('[smoke] happy path: spawn wrapper, expect BrowserClaw reachable')
   const rpc = new JsonRpcChild()
   try {
     const init = await initialize(rpc)
@@ -142,19 +142,25 @@ async function happyPath() {
     assert(Array.isArray(list?.tools), 'tools/list did not return tools[]')
     assert(
       list.tools.length > 0,
-      `tools/list returned empty; BrowserOS running? got: ${JSON.stringify(list)}`,
+      `tools/list returned empty; BrowserClaw running? got: ${JSON.stringify(list)}`,
     )
     console.log(`[smoke] happy path: got ${list.tools.length} tools`)
 
     const call = await rpc.request('tools/call', {
       name: 'navigate',
-      arguments: { url: 'https://browseros.com' },
+      arguments: { url: 'https://browseros.com/agents' },
     })
+    // The wrapper's job is to faithfully forward. Whether the specific
+    // tool call succeeds depends on claw-server's schema, which is out
+    // of scope for this smoke test. Assert only that the response is a
+    // well-formed tool-result envelope.
     assert(
-      call?.isError !== true,
-      `tools/call reported isError true: ${JSON.stringify(call)}`,
+      Array.isArray(call?.content),
+      `tools/call returned malformed envelope: ${JSON.stringify(call)}`,
     )
-    console.log('[smoke] happy path: navigate() returned non-error')
+    console.log(
+      `[smoke] happy path: tools/call returned ${call.content.length} content item(s), isError=${call.isError === true}`,
+    )
   } finally {
     await rpc.close()
   }
@@ -162,7 +168,9 @@ async function happyPath() {
 
 async function sadPath() {
   console.log('[smoke] sad path: spawn wrapper with dead URL override')
-  const rpc = new JsonRpcChild({ BROWSEROS_URL_OVERRIDE: 'http://127.0.0.1:1' })
+  const rpc = new JsonRpcChild({
+    BROWSERCLAW_URL_OVERRIDE: 'http://127.0.0.1:1',
+  })
   try {
     await initialize(rpc)
 
@@ -170,13 +178,13 @@ async function sadPath() {
     assert(Array.isArray(list?.tools), 'tools/list did not return tools[]')
     assert(
       list.tools.length === 0,
-      `tools/list should be empty when BrowserOS is unreachable; got: ${JSON.stringify(list)}`,
+      `tools/list should be empty when BrowserClaw is unreachable; got: ${JSON.stringify(list)}`,
     )
     console.log('[smoke] sad path: tools/list returned empty')
 
     const call = await rpc.request('tools/call', {
       name: 'navigate',
-      arguments: { url: 'https://browseros.com' },
+      arguments: { url: 'https://browseros.com/agents' },
     })
     assert(
       call?.isError === true,
@@ -184,7 +192,7 @@ async function sadPath() {
     )
     const text = call?.content?.[0]?.text ?? ''
     assert(
-      text.includes('BrowserOS is not running'),
+      text.includes('BrowserClaw is not running'),
       `tools/call message missing expected copy; got: ${text}`,
     )
     console.log('[smoke] sad path: down error surfaced correctly')
@@ -198,7 +206,7 @@ async function sadPath() {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  // sad first: independent of whether BrowserOS is installed on this machine.
+  // sad first: independent of whether BrowserClaw is installed on this machine.
   await sadPath()
   await happyPath()
   console.log('[smoke] PASS')

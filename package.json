@@ -1,17 +1,17 @@
 {
-  "name": "browseros-claude-desktop",
-  "version": "0.1.0-rc.2",
+  "name": "browserclaw-claude-desktop",
+  "version": "0.2.0-rc.0",
   "private": true,
-  "description": "BrowserOS extension for Claude Desktop. Makes BrowserOS the go-to browser for Claude.",
+  "description": "BrowserClaw extension for Claude Desktop. Gives Claude a real browser driven with your existing logins.",
   "license": "MIT",
   "author": "BrowserOS",
-  "homepage": "https://browseros.com",
+  "homepage": "https://browseros.com/agents",
   "repository": {
     "type": "git",
-    "url": "https://github.com/browseros-ai/browseros-claude-desktop.git"
+    "url": "https://github.com/browseros-ai/browserclaw-claude-desktop.git"
   },
   "bugs": {
-    "url": "https://github.com/browseros-ai/browseros-claude-desktop/issues"
+    "url": "https://github.com/browseros-ai/browserclaw-claude-desktop/issues"
   },
   "type": "module",
   "main": "server/wrapper.js",

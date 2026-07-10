@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Entry point for the BrowserOS Claude Desktop extension.
+ * Entry point for the BrowserClaw Claude Desktop extension.
  *
  * Claude Desktop spawns this as a stdio MCP server. We turn around and act
- * as an MCP client against the BrowserOS desktop app's StreamableHTTP MCP
+ * as an MCP client against the BrowserClaw claw-server's StreamableHTTP MCP
  * endpoint at <discovered base>/mcp. Each Claude Desktop request is
- * forwarded to BrowserOS verbatim, so Claude sees BrowserOS's real tool
- * definitions (and the descriptions audited in the companion BrowserOS PR).
+ * forwarded to BrowserClaw verbatim, so Claude sees BrowserClaw's real tool
+ * definitions.
  *
  * Why the low-level Server (not McpServer):
  *   McpServer expects each tool registered up front. We are a proxy: we do
@@ -31,9 +31,9 @@ import { openInnerClient, TransportConnectError } from './transport.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const BROWSEROS_DOWN_MESSAGE =
-  "BrowserOS is not running. Open the BrowserOS app, then ask me again. " +
-  "If you don't have BrowserOS installed yet, get it at https://browseros.com."
+const BROWSERCLAW_DOWN_MESSAGE =
+  "BrowserClaw is not running. Open BrowserClaw, then ask me again. " +
+  "If you don't have BrowserClaw installed yet, get it at https://browseros.com/agents."
 
 // ---------------------------------------------------------------------------
 // stderr-only logging. Anything on stdout would corrupt the JSON-RPC framing.
@@ -41,15 +41,15 @@ const BROWSEROS_DOWN_MESSAGE =
 
 function logInfo(msg, extra) {
   if (extra !== undefined) {
-    process.stderr.write(`[browseros] ${msg} ${JSON.stringify(extra)}\n`)
+    process.stderr.write(`[browserclaw] ${msg} ${JSON.stringify(extra)}\n`)
   } else {
-    process.stderr.write(`[browseros] ${msg}\n`)
+    process.stderr.write(`[browserclaw] ${msg}\n`)
   }
 }
 
 function logError(msg, err) {
   const detail = err instanceof Error ? err.message : String(err)
-  process.stderr.write(`[browseros] error: ${msg}: ${detail}\n`)
+  process.stderr.write(`[browserclaw] error: ${msg}: ${detail}\n`)
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ async function readWrapperVersion() {
 
 // ---------------------------------------------------------------------------
 // Inner client lifecycle. Single live connection at a time; the wrapper
-// transparently reconnects on the next call when BrowserOS comes back up.
+// transparently reconnects on the next call when BrowserClaw comes back up.
 // ---------------------------------------------------------------------------
 
 /**
@@ -86,18 +86,19 @@ function logDiscoveryOutcome(state, msg, extra) {
 }
 
 /**
- * Try to discover BrowserOS and open the inner client. Never throws. Returns
- * the handle on success, null on failure (caller decides what to surface).
+ * Try to discover BrowserClaw and open the inner client. Never throws.
+ * Returns the handle on success, null on failure (caller decides what to
+ * surface).
  */
 async function tryOpenInner(state, version) {
   const baseUrl = await discoverBaseUrl()
   if (!baseUrl) {
-    logDiscoveryOutcome(state, 'discovery: no BrowserOS URL found')
+    logDiscoveryOutcome(state, 'discovery: no BrowserClaw URL found')
     return null
   }
   try {
     const inner = await openInnerClient(baseUrl, version)
-    logDiscoveryOutcome(state, 'connected to BrowserOS', {
+    logDiscoveryOutcome(state, 'connected to BrowserClaw', {
       baseUrl,
       serverInfo: inner.serverInfo,
     })
@@ -110,7 +111,7 @@ async function tryOpenInner(state, version) {
           : String(err.cause ?? '')
       logDiscoveryOutcome(
         state,
-        'discovery: BrowserOS URL found but connect failed',
+        'discovery: BrowserClaw URL found but connect failed',
         {
           baseUrl,
           attempted: `${baseUrl}/mcp`,
@@ -126,12 +127,13 @@ async function tryOpenInner(state, version) {
 
 /**
  * Single-flight reconnect: concurrent callers share one in-flight
- * `tryOpenInner` so we never end up with multiple live MCP Clients pointing at
- * the same BrowserOS instance, each holding an open HTTP transport. The first
- * caller to find `state.inner === null` creates the promise on `state.reconnect`
- * and stores its resolved value into `state.inner`. Subsequent callers that
- * race in await the same promise. `.finally()` clears `state.reconnect` after
- * the promise settles so the next disconnect can trigger a fresh attempt.
+ * `tryOpenInner` so we never end up with multiple live MCP Clients pointing
+ * at the same BrowserClaw instance, each holding an open HTTP transport.
+ * The first caller to find `state.inner === null` creates the promise on
+ * `state.reconnect` and stores its resolved value into `state.inner`.
+ * Subsequent callers that race in await the same promise. `.finally()`
+ * clears `state.reconnect` after the promise settles so the next disconnect
+ * can trigger a fresh attempt.
  */
 async function getOrOpenInner(state, version) {
   if (state.inner) return state.inner
@@ -162,7 +164,7 @@ async function callWithReconnect(state, version, op) {
       const stale = state.inner
       state.inner = null
       // Clear the dedup key so a successful reconnect logs the new
-      // "connected to BrowserOS" line even when the URL+serverInfo are
+      // "connected to BrowserClaw" line even when the URL+serverInfo are
       // identical to the previous connect (the common case for a
       // transient transport blip).
       state.lastDiscoveryLog = undefined
@@ -174,7 +176,7 @@ async function callWithReconnect(state, version, op) {
 
   const inner = await getOrOpenInner(state, version)
   if (!inner) {
-    throw new TransportConnectError(BROWSEROS_DOWN_MESSAGE)
+    throw new TransportConnectError(BROWSERCLAW_DOWN_MESSAGE)
   }
   return await op(inner)
 }
@@ -185,13 +187,14 @@ async function callWithReconnect(state, version, op) {
 
 function buildOuterServer({ initialInner, version, state }) {
   // Match the inner server's capabilities when we have them so Claude
-  // Desktop sees the BrowserOS surface. When we do not (BrowserOS was down
-  // at startup), advertise tools-only so Claude does not give up on the
-  // extension entirely. tools/call will return the down error in that case.
+  // Desktop sees the BrowserClaw surface. When we do not (BrowserClaw was
+  // down at startup), advertise tools-only so Claude does not give up on
+  // the extension entirely. tools/call will return the down error in that
+  // case.
   const capabilities = initialInner?.capabilities ?? { tools: {} }
 
   const server = new Server(
-    { name: 'browseros-claude-desktop', version },
+    { name: 'browserclaw-claude-desktop', version },
     { capabilities },
   )
 
@@ -201,8 +204,9 @@ function buildOuterServer({ initialInner, version, state }) {
         inner.client.listTools(request.params),
       )
     } catch {
-      // Decision per plan: return an empty list when BrowserOS is unreachable.
-      // We do NOT advertise tools we cannot back, and we do NOT cache.
+      // Decision per plan: return an empty list when BrowserClaw is
+      // unreachable. We do NOT advertise tools we cannot back, and we do
+      // NOT cache.
       return { tools: [] }
     }
   })
@@ -217,7 +221,7 @@ function buildOuterServer({ initialInner, version, state }) {
       // isError true. Throwing would surface as a protocol-level error
       // which Claude tends to swallow.
       return {
-        content: [{ type: 'text', text: BROWSEROS_DOWN_MESSAGE }],
+        content: [{ type: 'text', text: BROWSERCLAW_DOWN_MESSAGE }],
         isError: true,
       }
     }

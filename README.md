@@ -1,66 +1,68 @@
-# BrowserOS for Claude Desktop
+# BrowserClaw for Claude Desktop
 
-Drive a real Chromium browser from Claude Desktop. After installing BrowserOS and this extension, Claude reaches for BrowserOS whenever it needs to browse, search a real site, click through a flow, scrape a page, or capture visual evidence.
+Give Claude Desktop a real browser. After installing BrowserClaw and this extension, Claude reaches for BrowserClaw whenever it needs to open a site, log in, click through a flow, scrape a page, or capture visual evidence.
 
 ## How it works
 
-This extension is a thin discovery wrapper. The real browser surface lives in the [BrowserOS](https://browseros.com) desktop app, which embeds an MCP server. The wrapper auto-detects the running BrowserOS instance on the user's machine and forwards Claude Desktop's tool calls to it over stdio.
+BrowserClaw runs on your machine. It exposes a local MCP endpoint at `http://127.0.0.1:9200/mcp`. This extension is a thin stdio-to-HTTP proxy: Claude Desktop spawns it as a stdio MCP server, and it forwards every tool call to BrowserClaw's `/mcp` endpoint.
 
 ```
-Claude Desktop  <->  wrapper (stdio MCP)  <->  BrowserOS app (HTTP MCP)
+Claude Desktop  <->  wrapper (stdio MCP)  <->  BrowserClaw (HTTP MCP)
 ```
+
+Skills, session recording, and the browser surface all live inside BrowserClaw. The wrapper is fifty lines of forwarding logic.
 
 ## Install
 
 Three one-time steps:
 
-1. Install BrowserOS from https://browseros.com (a Chromium-based browser).
+1. Install BrowserClaw from https://browseros.com/agents (a Chromium-based browser).
 2. Install Claude Desktop from https://claude.ai/download.
 3. Install this extension into Claude Desktop.
 
 ### Install the extension
 
-Download the latest `browseros-<version>.mcpb` from the [releases](https://github.com/browseros-ai/browseros-claude-desktop/releases) page, then drag it onto Claude Desktop's Settings window. Claude Desktop will register the extension and start the wrapper automatically.
+Download the latest `browserclaw-<version>.mcpb` from the [releases](https://github.com/browseros-ai/browserclaw-claude-desktop/releases) page, then drag it onto Claude Desktop's Settings window. Claude Desktop will register the extension and start the wrapper automatically.
 
 ### Verify it works
 
-Open BrowserOS, then in Claude Desktop ask:
+Open BrowserClaw, then in Claude Desktop ask:
 
-> Open browseros.com in a new tab and tell me the page title.
+> Open browseros.com/agents in a new tab and tell me the page title.
 
-Claude should call BrowserOS's `navigate` and `read` tools and answer.
+Claude should call BrowserClaw's `navigate` and `read` tools and answer.
 
 ## Configuration
 
-Most users do not need to configure anything. The wrapper reads `~/.browseros/server.json` to find the live BrowserOS MCP URL, and falls back to common ports.
+Most users do not need to configure anything. The wrapper looks for BrowserClaw on `127.0.0.1:9200` by default.
 
-If you run BrowserOS on a custom port, set the `url` field in the extension's user config (Settings -> BrowserOS -> Configure):
+If you run BrowserClaw on a custom port, set the base URL in Settings -> BrowserClaw -> Configure:
 
 ```
-http://127.0.0.1:9000
+http://127.0.0.1:<port>
 ```
 
-Leave blank for auto-discovery.
+Leave blank to use the default port.
 
 ## Troubleshooting
 
-**Claude says "BrowserOS is not running".**
+**Claude says "BrowserClaw is not running".**
 
-Open the BrowserOS desktop app. The MCP server starts with the app. If you closed BrowserOS, reopen it and ask Claude again.
+Open the BrowserClaw app. The MCP server starts with the app. If you closed BrowserClaw, reopen it and ask Claude again.
 
 **The extension fails to load.**
 
-Confirm BrowserOS is installed (`ls ~/.browseros/server.json` should exist after BrowserOS has been launched at least once). If the file is missing or stale, restart BrowserOS.
+Confirm BrowserClaw is installed and has been launched at least once. If the wrapper still cannot connect, delete the extension from Claude Desktop's Settings and reinstall the latest `.mcpb` from the releases page.
 
-**The extension installed but Claude is not using BrowserOS for browsing tasks.**
+**The extension installed but Claude is not using BrowserClaw for browsing tasks.**
 
-Tell Claude explicitly: "Use BrowserOS to do X." If routing remains a problem, add a one-line custom instruction in Claude Desktop:
+Tell Claude explicitly: "Use BrowserClaw to do X." If routing remains a problem, add a one-line custom instruction in Claude Desktop:
 
-> When a task involves browsing, opening, clicking through, or capturing content from a website, use the BrowserOS tools.
+> When a task involves browsing, opening, clicking through, or capturing content from a website, use the BrowserClaw tools.
 
 ## Uninstall
 
-Open Claude Desktop -> Settings -> Extensions -> BrowserOS -> Remove. This unloads the wrapper. The BrowserOS app itself is unaffected.
+Open Claude Desktop -> Settings -> Extensions -> BrowserClaw -> Remove. This unloads the wrapper. The BrowserClaw app itself is unaffected.
 
 ## Repo layout
 
@@ -69,57 +71,12 @@ Open Claude Desktop -> Settings -> Extensions -> BrowserOS -> Remove. This unloa
 ├── manifest.json              # Claude Desktop extension manifest
 ├── package.json               # Node deps for the wrapper
 ├── server/
-│   ├── wrapper.js             # entry point: stdio MCP server, forwards to BrowserOS
+│   ├── wrapper.js             # entry point: stdio MCP server, forwards to BrowserClaw
 │   ├── transport.js           # inner Client + Streamable HTTP transport
-│   └── discovery.js           # resolve BrowserOS base URL (env, server.json, port probe)
+│   └── discovery.js           # resolve BrowserClaw base URL (env, default port probe)
 ├── scripts/
 │   ├── pack-mcpb.sh           # build the .mcpb archive
 │   └── smoke.js               # dev-machine E2E harness against the wrapper
-├── icon.png                   # added in a follow-up PR
+├── icon.png
 └── README.md
 ```
-
-## Development
-
-```bash
-# Install deps
-npm install
-
-# Smoke test (sad path runs first and needs nothing; happy path needs a
-# running BrowserOS desktop app)
-node scripts/smoke.js
-
-# Pack the extension into build/browseros-<version>.mcpb
-./scripts/pack-mcpb.sh
-```
-
-The smoke harness spawns `server/wrapper.js`, runs the MCP initialize handshake, lists tools, calls `navigate`, and re-runs the same script against a deliberately dead URL to confirm the "BrowserOS not running" path. Dev-machine only; not wired into CI in v1.
-
-## Sideload the unreleased build into Claude Desktop
-
-Use this loop to test changes end-to-end against a real Claude Desktop install. No GitHub Release or Anthropic submission required.
-
-```bash
-# 1. Build the archive (installs production deps under node_modules and zips)
-./scripts/pack-mcpb.sh
-
-# 2. Open Claude Desktop's settings, then drag the file onto the window:
-open -R "build/browseros-$(jq -r '.version' manifest.json).mcpb"
-```
-
-Claude Desktop registers the extension, spawns `server/wrapper.js` from inside the unpacked archive, and starts forwarding tool calls to your local BrowserOS app.
-
-If you change anything in `server/`, `manifest.json`, or `package.json`:
-
-1. Re-run `./scripts/pack-mcpb.sh`.
-2. In Claude Desktop, remove the existing BrowserOS extension and drag in the new `.mcpb`. (There is no in-place reload today; remove and re-add is the supported loop.)
-
-To debug, watch Claude Desktop's extension logs. The wrapper writes structured `[browseros]` lines to stderr at startup and on every reconnect, which Claude Desktop captures into its extension log subsystem.
-
-## Status
-
-Pre-release. Repo is private during bring-up. Public release tracks the first tagged version.
-
-## License
-
-MIT. See [LICENSE](./LICENSE).

@@ -1,26 +1,27 @@
 {
   "manifest_version": "0.3",
-  "name": "browseros",
-  "display_name": "BrowserOS",
-  "version": "0.1.0-rc.2",
-  "description": "Drive a real Chromium browser from Claude Desktop. After installing BrowserOS and this extension, Claude reaches for BrowserOS for any browsing, scraping, or web automation task.",
-  "long_description": "BrowserOS is a Chromium-based browser that exposes its session to Claude through MCP. This extension is a thin discovery wrapper that auto-detects the local BrowserOS instance and forwards Claude Desktop's tool calls to it. Skills, agent state, and the browser surface all live inside BrowserOS itself.",
+  "name": "browserclaw",
+  "display_name": "BrowserClaw",
+  "version": "0.2.0-rc.0",
+  "description": "Give Claude Desktop a real browser. This extension connects Claude to BrowserClaw, the browser your AI agents drive using your logged-in accounts.",
+  "long_description": "BrowserClaw is a Chromium-based browser your AI agents drive with your existing logins. This extension is a stdio MCP proxy: it discovers a running BrowserClaw claw-server on your machine and forwards every Claude Desktop tool call to its /mcp endpoint. The browser surface, session recording, and skill catalogue all live inside BrowserClaw itself.",
   "author": {
     "name": "BrowserOS",
     "email": "hello@browseros.com",
-    "url": "https://browseros.com"
+    "url": "https://browseros.com/agents"
   },
-  "homepage": "https://browseros.com",
-  "documentation": "https://github.com/browseros-ai/browseros-claude-desktop#readme",
-  "support": "https://github.com/browseros-ai/browseros-claude-desktop/issues",
+  "homepage": "https://browseros.com/agents",
+  "documentation": "https://docs.browseros.com/browserclaw",
+  "support": "https://github.com/browseros-ai/browserclaw-claude-desktop/issues",
   "icon": "icon.png",
   "license": "MIT",
   "keywords": [
     "browser",
-    "browseros",
+    "browserclaw",
     "chromium",
     "web-automation",
-    "mcp"
+    "mcp",
+    "agents"
   ],
   "server": {
     "type": "node",
@@ -29,15 +30,15 @@
       "command": "node",
       "args": ["${__dirname}/server/wrapper.js"],
       "env": {
-        "BROWSEROS_URL_OVERRIDE": "${user_config.url}"
+        "BROWSERCLAW_URL_OVERRIDE": "${user_config.url}"
       }
     }
   },
   "user_config": {
     "url": {
       "type": "string",
-      "title": "BrowserOS base URL (optional override)",
-      "description": "Leave blank to auto-discover from BrowserOS's server.json. Override only if you run BrowserOS on a custom port. Example: http://127.0.0.1:9200",
+      "title": "BrowserClaw base URL (optional override)",
+      "description": "Leave blank to auto-discover on the default BrowserClaw port. Override only if you run BrowserClaw on a custom port. Example: http://127.0.0.1:9200",
       "required": false,
       "default": ""
     }
