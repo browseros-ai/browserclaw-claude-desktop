@@ -2,7 +2,7 @@
 #
 # Pack the extension into a .mcpb archive for sideload or directory submission.
 #
-# Output: build/browseros-<version>.mcpb
+# Output: build/browserclaw-<version>.mcpb
 #
 # The script reads the version from manifest.json so the archive name always
 # matches what Claude Desktop displays after install.
@@ -24,7 +24,7 @@ if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
 fi
 
 BUILD_DIR="$ROOT_DIR/build"
-OUT="$BUILD_DIR/browseros-$VERSION.mcpb"
+OUT="$BUILD_DIR/browserclaw-$VERSION.mcpb"
 
 mkdir -p "$BUILD_DIR"
 rm -f "$OUT"
