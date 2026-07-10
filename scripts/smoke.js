@@ -192,7 +192,7 @@ async function sadPath() {
     )
     const text = call?.content?.[0]?.text ?? ''
     assert(
-      text.includes('BrowserClaw is not running'),
+      text.includes('is unreachable'),
       `tools/call message missing expected copy; got: ${text}`,
     )
     console.log('[smoke] sad path: down error surfaced correctly')

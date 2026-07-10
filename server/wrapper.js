@@ -31,9 +31,40 @@ import { openInnerClient, TransportConnectError } from './transport.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const BROWSERCLAW_DOWN_MESSAGE =
-  "BrowserClaw is not running. Open BrowserClaw, then ask me again. " +
-  "If you don't have BrowserClaw installed yet, get it at https://browseros.com/agents."
+// ---------------------------------------------------------------------------
+// User-facing messages keyed by discovery state. Each message is a single
+// self-contained instruction: what the reader should do next. Empty string
+// for `running` because there is nothing to say on the happy path.
+// ---------------------------------------------------------------------------
+
+const DOWN_MESSAGES = {
+  'not-installed':
+    'BrowserClaw does not appear to be installed on this machine. ' +
+    'Install it from https://browseros.com/agents, then ask me again.',
+  'installed-not-running':
+    'BrowserClaw is installed but I could not reach it on ' +
+    'http://127.0.0.1:9200. Two things to check:\n\n' +
+    '  1. Is BrowserClaw open? The MCP server runs while the app is running.\n' +
+    '  2. Is BrowserClaw running on a different port? If so, set the base URL ' +
+    'in Claude Desktop -> Settings -> BrowserClaw -> Configure.',
+}
+
+/**
+ * Renders the discovery result into the corresponding user-facing message.
+ * `override-unreachable` interpolates the offending URL so the reader knows
+ * exactly which value in Settings is stale; other states are static.
+ */
+function messageForResult(result) {
+  if (!result || result.state === 'running') return ''
+  if (result.state === 'override-unreachable') {
+    return (
+      `The configured BrowserClaw URL ${result.attempted} is unreachable. ` +
+      'Check the URL in Claude Desktop -> Settings -> BrowserClaw -> ' +
+      'Configure, or leave it blank to auto-discover on the default port.'
+    )
+  }
+  return DOWN_MESSAGES[result.state]
+}
 
 // ---------------------------------------------------------------------------
 // stderr-only logging. Anything on stdout would corrupt the JSON-RPC framing.
@@ -88,18 +119,27 @@ function logDiscoveryOutcome(state, msg, extra) {
 /**
  * Try to discover BrowserClaw and open the inner client. Never throws.
  * Returns the handle on success, null on failure (caller decides what to
- * surface).
+ * surface). Stashes the latest discovery result on `state.lastResult` so
+ * the tool-call error handler can pick the right user-facing message.
  */
 async function tryOpenInner(state, version) {
-  const baseUrl = await discoverBaseUrl()
-  if (!baseUrl) {
-    logDiscoveryOutcome(state, 'discovery: no BrowserClaw URL found')
+  const result = await discoverBaseUrl()
+  state.lastResult = result
+
+  if (result.state !== 'running') {
+    logDiscoveryOutcome(
+      state,
+      `discovery: ${result.state}`,
+      result.attempted ? { attempted: result.attempted } : undefined,
+    )
     return null
   }
+
   try {
-    const inner = await openInnerClient(baseUrl, version)
+    const inner = await openInnerClient(result.url, version)
     logDiscoveryOutcome(state, 'connected to BrowserClaw', {
-      baseUrl,
+      baseUrl: result.url,
+      source: result.source,
       serverInfo: inner.serverInfo,
     })
     return inner
@@ -113,11 +153,16 @@ async function tryOpenInner(state, version) {
         state,
         'discovery: BrowserClaw URL found but connect failed',
         {
-          baseUrl,
-          attempted: `${baseUrl}/mcp`,
+          baseUrl: result.url,
+          attempted: `${result.url}/mcp`,
           cause: causeMsg,
         },
       )
+      // Transport rejects fold into the same state the user was already in.
+      // Re-tag as installed-not-running so the tool-call message tells the
+      // reader to check that BrowserClaw is open and on the expected port,
+      // instead of leaving the last successful `running` result stashed.
+      state.lastResult = { state: 'installed-not-running', url: null }
     } else {
       logError('inner connect threw', err)
     }
@@ -176,7 +221,7 @@ async function callWithReconnect(state, version, op) {
 
   const inner = await getOrOpenInner(state, version)
   if (!inner) {
-    throw new TransportConnectError(BROWSERCLAW_DOWN_MESSAGE)
+    throw new TransportConnectError(messageForResult(state.lastResult))
   }
   return await op(inner)
 }
@@ -221,7 +266,7 @@ function buildOuterServer({ initialInner, version, state }) {
       // isError true. Throwing would surface as a protocol-level error
       // which Claude tends to swallow.
       return {
-        content: [{ type: 'text', text: BROWSERCLAW_DOWN_MESSAGE }],
+        content: [{ type: 'text', text: messageForResult(state.lastResult) }],
         isError: true,
       }
     }
@@ -273,7 +318,7 @@ async function main() {
   const version = await readWrapperVersion()
   logInfo('starting', { version })
 
-  const state = { inner: null }
+  const state = { inner: null, lastResult: null }
   state.inner = await tryOpenInner(state, version)
 
   const server = buildOuterServer({
