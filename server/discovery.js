@@ -4,21 +4,32 @@
  * Returns a tagged discriminant so the wrapper can render distinct
  * error messages per failure mode:
  *
- *   { state: 'running', url, source: 'override' | 'default' }
+ *   { state: 'running', url,
+ *     source: 'override' | 'manifest' | 'log' | 'default' }
  *   { state: 'override-unreachable', url: null, attempted }
  *   { state: 'not-installed', url: null }
  *   { state: 'installed-not-running', url: null }
  *
- * State machine:
+ * Precedence:
  *
- *   BROWSERCLAW_URL_OVERRIDE is set:
- *     parses AND probeHealth passes  -> running (override)
- *     otherwise                      -> override-unreachable
+ *   1. BROWSERCLAW_URL_OVERRIDE is set:
+ *        parses AND probeHealth passes  -> running (override)
+ *        otherwise                      -> override-unreachable
  *
- *   no override:
- *     ~/.browserclaw is missing      -> not-installed
- *     probeHealth on 9200 fails      -> installed-not-running
- *     otherwise                      -> running (default)
+ *   2. no override:
+ *        a) manifest URL (from
+ *           `~/.browserclaw/mcp-manager/manifest.json`) probes healthy
+ *           -> running (manifest). Missing manifest or unreachable URL
+ *           falls through.
+ *        b) log URL (last `claw-server listening` line in
+ *           `~/.browserclaw/claw-server.log`) probes healthy
+ *           -> running (log). Same fall-through rules.
+ *        c) default `http://127.0.0.1:9200` probes healthy
+ *           -> running (default).
+ *
+ *   3. every probe failed:
+ *        `~/.browserclaw` is missing    -> not-installed
+ *        otherwise                      -> installed-not-running
  *
  * Dev-mode claw-server (which uses `~/.browserclaw-dev`) is NOT
  * detected. Dev users must set BROWSERCLAW_URL_OVERRIDE explicitly.
@@ -29,6 +40,8 @@
 import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+import { readLogUrl, readManifestUrl } from './on-disk-discovery.js'
 
 const DEFAULT_URL = 'http://127.0.0.1:9200'
 const HEALTH_PATH = '/system/health'
@@ -41,12 +54,12 @@ const PROBE_TIMEOUT_MS = 1000
 function normalizeUrl(raw) {
   if (typeof raw !== 'string' || raw.length === 0) return null
   let trimmed = raw.trim().replace(/\/+$/, '')
-  // Forgive a paste of the full MCP endpoint. openInnerClient appends "/mcp"
-  // when it opens the transport; keeping a trailing "/mcp" on the base would
-  // 404 with no diagnostic for the user.
-  if (/\/mcp$/i.test(trimmed)) {
-    trimmed = trimmed.slice(0, -4)
-  }
+  // Forgive a paste of the full transport endpoint. openInnerClient appends
+  // "/mcp" when it opens the transport, and probeHealth appends
+  // "/system/health"; either would 404 with no diagnostic if the trailing
+  // "/mcp" or "/sse" from the manifest was left in place. Strip both so a
+  // manifest-recorded sse or http URL is normalised to the base.
+  trimmed = trimmed.replace(/\/(mcp|sse)$/i, '')
   try {
     const parsed = new URL(trimmed)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
@@ -88,7 +101,8 @@ async function isBrowserclawInstalled() {
 
 /**
  * @typedef {(
- *   | { state: 'running'; url: string; source: 'override' | 'default' }
+ *   | { state: 'running'; url: string;
+ *       source: 'override' | 'manifest' | 'log' | 'default' }
  *   | { state: 'override-unreachable'; url: null; attempted: string }
  *   | { state: 'not-installed'; url: null }
  *   | { state: 'installed-not-running'; url: null }
@@ -105,13 +119,28 @@ export async function discoverBaseUrl() {
     return { state: 'override-unreachable', url: null, attempted: override }
   }
 
+  const manifestUrl = normalizeUrl(await readManifestUrl(CONFIG_DIR))
+  if (manifestUrl && (await probeHealth(manifestUrl))) {
+    return { state: 'running', url: manifestUrl, source: 'manifest' }
+  }
+
+  const logUrl = normalizeUrl(await readLogUrl(CONFIG_DIR))
+  if (logUrl && logUrl !== manifestUrl && (await probeHealth(logUrl))) {
+    return { state: 'running', url: logUrl, source: 'log' }
+  }
+
+  // Only probe the default if neither on-disk source pointed at it.
+  // When manifest or log already record 9200, the earlier probes
+  // already covered that URL and the answer was `not healthy`; probing
+  // again would only waste a round trip.
+  if (manifestUrl !== DEFAULT_URL && logUrl !== DEFAULT_URL) {
+    if (await probeHealth(DEFAULT_URL)) {
+      return { state: 'running', url: DEFAULT_URL, source: 'default' }
+    }
+  }
+
   if (!(await isBrowserclawInstalled())) {
     return { state: 'not-installed', url: null }
   }
-
-  if (!(await probeHealth(DEFAULT_URL))) {
-    return { state: 'installed-not-running', url: null }
-  }
-
-  return { state: 'running', url: DEFAULT_URL, source: 'default' }
+  return { state: 'installed-not-running', url: null }
 }
