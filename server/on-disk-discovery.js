@@ -1,30 +1,39 @@
 /**
  * On-disk discovery helpers.
  *
- * claw-server writes its actually-bound base URL to two places whenever it
- * boots successfully:
+ * claw-server writes its actually-bound base URL to three places
+ * whenever it boots successfully. In descending order of preference:
  *
- *   1. `<configDir>/mcp-manager/manifest.json` — maintained by the
+ *   1. `<configDir>/runtime.json` — single-purpose JSON blob shaped
+ *      `{ "url": "http://..." }`. Written atomically (write-to-tmp
+ *      then rename) immediately after `Bun.serve()` returns, so a
+ *      concurrent reader either sees the previous content or the new
+ *      content, never a torn write. Exists after ANY successful bind;
+ *      no harness link required. This is the primary source of truth.
+ *
+ *   2. `<configDir>/mcp-manager/manifest.json` — maintained by the
  *      agent-mcp-manager library that ships inside BrowserOS. On every
  *      boot, `migrateMcpUrls()` in claw-server rewrites any recorded
  *      server URL to the current `publicMcpUrl()`, so this file's
  *      `.servers["BrowserClaw"].spec.url` reflects the running port.
  *      Only present after at least one harness (Claude Code / Claude
- *      Desktop / etc.) has been linked; missing on a fresh install.
+ *      Desktop / etc.) has been linked. Kept as a backup source for
+ *      compatibility with claw-server builds that predate `runtime.json`.
  *
- *   2. `<configDir>/claw-server.log` — pino-shaped JSON per line. The
+ *   3. `<configDir>/claw-server.log` — pino-shaped JSON per line. The
  *      line `{"msg":"claw-server listening","url":"http://..."}` is
- *      written immediately after `Bun.serve()` returns, so this line
- *      exists after ANY successful bind, even before harnesses are
- *      linked.
+ *      written immediately after `Bun.serve()` returns. Kept as a
+ *      final on-disk fallback for the same predates-runtime.json
+ *      compatibility reason.
  *
- * Both functions return the recorded URL or null. Never throw. Pure
- * module: no shared mutable state, no SDK imports.
+ * All three functions return the recorded URL or null. Never throw.
+ * Pure module: no shared mutable state, no SDK imports.
  */
 
 import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+const RUNTIME_REL = 'runtime.json'
 const MANIFEST_REL = 'mcp-manager/manifest.json'
 const LOG_REL = 'claw-server.log'
 const LOG_LISTEN_MSG = 'claw-server listening'
@@ -36,6 +45,34 @@ const LOG_LISTEN_MSG = 'claw-server listening'
 // which comfortably survives multi-hour sessions without paying for a
 // full-file read (the file itself is capped at 20 MiB by rotation).
 const LOG_TAIL_BYTES = 1024 * 1024
+
+/**
+ * Read the claw-server runtime record and return `.url` if present.
+ * Returns null on any failure (missing file, malformed JSON, missing
+ * or non-string `.url`). Never throws.
+ *
+ * This file is written atomically by claw-server immediately after
+ * successful bind, so a healthy read reflects the current running URL.
+ *
+ * @param {string} configDir Absolute path to the claw-server state
+ *   directory, typically `~/.browserclaw`.
+ * @returns {Promise<string | null>}
+ */
+export async function readRuntimeUrl(configDir) {
+  const path = join(configDir, RUNTIME_REL)
+  let raw
+  try {
+    raw = await readFile(path, 'utf8')
+  } catch {
+    return null
+  }
+  try {
+    const doc = JSON.parse(raw)
+    return typeof doc?.url === 'string' ? doc.url : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * Read the mcp-manager manifest and extract the recorded BrowserClaw

@@ -14,7 +14,11 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { readLogUrl, readManifestUrl } from '../server/on-disk-discovery.js'
+import {
+  readLogUrl,
+  readManifestUrl,
+  readRuntimeUrl,
+} from '../server/on-disk-discovery.js'
 
 async function makeConfigDir() {
   const dir = await mkdtemp(join(tmpdir(), 'browserclaw-disco-'))
@@ -30,6 +34,48 @@ async function writeManifest(dir, doc) {
 async function writeLog(dir, contents) {
   await writeFile(join(dir, 'claw-server.log'), contents, 'utf8')
 }
+
+async function writeRuntime(dir, doc) {
+  await writeFile(join(dir, 'runtime.json'), JSON.stringify(doc), 'utf8')
+}
+
+// ---------------------------------------------------------------------------
+// readRuntimeUrl
+// ---------------------------------------------------------------------------
+
+test('readRuntimeUrl returns null when runtime file is missing', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  assert.equal(await readRuntimeUrl(dir), null)
+})
+
+test('readRuntimeUrl returns null when runtime is not valid JSON', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'runtime.json'), '{not-json', 'utf8')
+  assert.equal(await readRuntimeUrl(dir), null)
+})
+
+test('readRuntimeUrl returns null when .url is missing', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeRuntime(dir, { other: 'field' })
+  assert.equal(await readRuntimeUrl(dir), null)
+})
+
+test('readRuntimeUrl returns null when .url is not a string', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeRuntime(dir, { url: 9200 })
+  assert.equal(await readRuntimeUrl(dir), null)
+})
+
+test('readRuntimeUrl returns the URL when the file is well-formed', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeRuntime(dir, { url: 'http://127.0.0.1:9800' })
+  assert.equal(await readRuntimeUrl(dir), 'http://127.0.0.1:9800')
+})
 
 // ---------------------------------------------------------------------------
 // readManifestUrl

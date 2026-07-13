@@ -5,7 +5,7 @@
  * error messages per failure mode:
  *
  *   { state: 'running', url,
- *     source: 'override' | 'manifest' | 'log' | 'default' }
+ *     source: 'override' | 'runtime' | 'manifest' | 'log' | 'default' }
  *   { state: 'override-unreachable', url: null, attempted }
  *   { state: 'not-installed', url: null }
  *   { state: 'installed-not-running', url: null }
@@ -17,14 +17,20 @@
  *        otherwise                      -> override-unreachable
  *
  *   2. no override:
- *        a) manifest URL (from
+ *        a) runtime URL (from `~/.browserclaw/runtime.json`) probes
+ *           healthy -> running (runtime). This file is the primary
+ *           on-disk source: written atomically by claw-server on every
+ *           successful bind, no harness link required.
+ *        b) manifest URL (from
  *           `~/.browserclaw/mcp-manager/manifest.json`) probes healthy
- *           -> running (manifest). Missing manifest or unreachable URL
- *           falls through.
- *        b) log URL (last `claw-server listening` line in
+ *           -> running (manifest). Backup source; requires a harness
+ *           link to be populated.
+ *        c) log URL (last `claw-server listening` line in
  *           `~/.browserclaw/claw-server.log`) probes healthy
- *           -> running (log). Same fall-through rules.
- *        c) default `http://127.0.0.1:9200` probes healthy
+ *           -> running (log). Final on-disk fallback, kept for
+ *           compatibility with claw-server builds that predate
+ *           `runtime.json`.
+ *        d) default `http://127.0.0.1:9200` probes healthy
  *           -> running (default).
  *
  *   3. every probe failed:
@@ -41,7 +47,11 @@ import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { readLogUrl, readManifestUrl } from './on-disk-discovery.js'
+import {
+  readLogUrl,
+  readManifestUrl,
+  readRuntimeUrl,
+} from './on-disk-discovery.js'
 
 const DEFAULT_URL = 'http://127.0.0.1:9200'
 const HEALTH_PATH = '/system/health'
@@ -102,7 +112,7 @@ async function isBrowserclawInstalled() {
 /**
  * @typedef {(
  *   | { state: 'running'; url: string;
- *       source: 'override' | 'manifest' | 'log' | 'default' }
+ *       source: 'override' | 'runtime' | 'manifest' | 'log' | 'default' }
  *   | { state: 'override-unreachable'; url: null; attempted: string }
  *   | { state: 'not-installed'; url: null }
  *   | { state: 'installed-not-running'; url: null }
@@ -119,21 +129,38 @@ export async function discoverBaseUrl() {
     return { state: 'override-unreachable', url: null, attempted: override }
   }
 
+  const runtimeUrl = normalizeUrl(await readRuntimeUrl(CONFIG_DIR))
+  if (runtimeUrl && (await probeHealth(runtimeUrl))) {
+    return { state: 'running', url: runtimeUrl, source: 'runtime' }
+  }
+
   const manifestUrl = normalizeUrl(await readManifestUrl(CONFIG_DIR))
-  if (manifestUrl && (await probeHealth(manifestUrl))) {
+  if (
+    manifestUrl &&
+    manifestUrl !== runtimeUrl &&
+    (await probeHealth(manifestUrl))
+  ) {
     return { state: 'running', url: manifestUrl, source: 'manifest' }
   }
 
   const logUrl = normalizeUrl(await readLogUrl(CONFIG_DIR))
-  if (logUrl && logUrl !== manifestUrl && (await probeHealth(logUrl))) {
+  if (
+    logUrl &&
+    logUrl !== runtimeUrl &&
+    logUrl !== manifestUrl &&
+    (await probeHealth(logUrl))
+  ) {
     return { state: 'running', url: logUrl, source: 'log' }
   }
 
-  // Only probe the default if neither on-disk source pointed at it.
-  // When manifest or log already record 9200, the earlier probes
-  // already covered that URL and the answer was `not healthy`; probing
-  // again would only waste a round trip.
-  if (manifestUrl !== DEFAULT_URL && logUrl !== DEFAULT_URL) {
+  // Only probe the default if none of the on-disk sources already pointed
+  // at it. When any of them recorded 9200 and the earlier probe reported
+  // `not healthy`, probing 9200 again would only waste a round trip.
+  if (
+    runtimeUrl !== DEFAULT_URL &&
+    manifestUrl !== DEFAULT_URL &&
+    logUrl !== DEFAULT_URL
+  ) {
     if (await probeHealth(DEFAULT_URL)) {
       return { state: 'running', url: DEFAULT_URL, source: 'default' }
     }
