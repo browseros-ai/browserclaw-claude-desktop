@@ -1,6 +1,6 @@
 {
   "name": "browserclaw-claude-desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "BrowserClaw extension for Claude Desktop. Gives Claude a real browser driven with your existing logins.",
   "license": "MIT",
