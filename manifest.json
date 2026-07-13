@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "browserclaw",
   "display_name": "BrowserClaw",
-  "version": "0.3.0-rc.0",
+  "version": "0.3.0-rc.1",
   "description": "Give Claude Desktop a real browser. This extension connects Claude to BrowserClaw, the browser your AI agents drive using your logged-in accounts.",
   "long_description": "BrowserClaw is a Chromium-based browser your AI agents drive with your existing logins. This extension is a stdio MCP proxy: it discovers a running BrowserClaw claw-server on your machine and forwards every Claude Desktop tool call to its /mcp endpoint. The browser surface, session recording, and skill catalogue all live inside BrowserClaw itself.",
   "author": {

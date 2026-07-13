@@ -29,11 +29,13 @@ const MANIFEST_REL = 'mcp-manager/manifest.json'
 const LOG_REL = 'claw-server.log'
 const LOG_LISTEN_MSG = 'claw-server listening'
 
-// 32 KiB tail is generous. The bind line is written first thing after
-// listen and is well under 512 bytes; anything more just protects
-// against unusually chatty startup logging without paying for a full
-// file read.
-const LOG_TAIL_BYTES = 32 * 1024
+// 1 MiB tail balances two forces: the bind line is written first thing
+// after listen (so a small window nearly always catches it), but the log
+// file is appended to across restarts within a 24-hour rotation window
+// and can be chatty. 1 MiB covers roughly 4000 typical JSON log lines,
+// which comfortably survives multi-hour sessions without paying for a
+// full-file read (the file itself is capped at 20 MiB by rotation).
+const LOG_TAIL_BYTES = 1024 * 1024
 
 /**
  * Read the mcp-manager manifest and extract the recorded BrowserClaw
@@ -63,7 +65,15 @@ export async function readManifestUrl(configDir) {
   const entry = doc?.servers?.BrowserClaw
   const spec = entry?.spec
   if (!spec || typeof spec.url !== 'string') return null
-  if (spec.transport !== 'http' && spec.transport !== 'sse') return null
+  // Accept both the string form ("transport": "http") and the tagged-object
+  // form ("transport": {"type": "http", ...}). @browseros/agent-mcp-manager
+  // emits the string form today; the object form is the MCP-spec shape and
+  // could appear if the manifest is populated by a different producer.
+  const transport =
+    typeof spec.transport === 'string'
+      ? spec.transport
+      : spec.transport?.type
+  if (transport !== 'http' && transport !== 'sse') return null
   return spec.url
 }
 

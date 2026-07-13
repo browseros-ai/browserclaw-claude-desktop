@@ -102,6 +102,38 @@ test('readManifestUrl returns URL when transport is sse', async (t) => {
   assert.equal(await readManifestUrl(dir), 'http://127.0.0.1:9300/sse')
 })
 
+test('readManifestUrl accepts tagged-object transport shape', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeManifest(dir, {
+    servers: {
+      BrowserClaw: {
+        spec: {
+          transport: { type: 'http', headers: {} },
+          url: 'http://127.0.0.1:9600/mcp',
+        },
+      },
+    },
+  })
+  assert.equal(await readManifestUrl(dir), 'http://127.0.0.1:9600/mcp')
+})
+
+test('readManifestUrl rejects tagged-object transport of unsupported type', async (t) => {
+  const dir = await makeConfigDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeManifest(dir, {
+    servers: {
+      BrowserClaw: {
+        spec: {
+          transport: { type: 'stdio', command: 'browserclaw' },
+          url: 'http://127.0.0.1:9600/mcp',
+        },
+      },
+    },
+  })
+  assert.equal(await readManifestUrl(dir), null)
+})
+
 // ---------------------------------------------------------------------------
 // readLogUrl
 // ---------------------------------------------------------------------------

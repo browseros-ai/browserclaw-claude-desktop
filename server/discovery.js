@@ -54,12 +54,12 @@ const PROBE_TIMEOUT_MS = 1000
 function normalizeUrl(raw) {
   if (typeof raw !== 'string' || raw.length === 0) return null
   let trimmed = raw.trim().replace(/\/+$/, '')
-  // Forgive a paste of the full MCP endpoint. openInnerClient appends "/mcp"
-  // when it opens the transport; keeping a trailing "/mcp" on the base would
-  // 404 with no diagnostic for the user.
-  if (/\/mcp$/i.test(trimmed)) {
-    trimmed = trimmed.slice(0, -4)
-  }
+  // Forgive a paste of the full transport endpoint. openInnerClient appends
+  // "/mcp" when it opens the transport, and probeHealth appends
+  // "/system/health"; either would 404 with no diagnostic if the trailing
+  // "/mcp" or "/sse" from the manifest was left in place. Strip both so a
+  // manifest-recorded sse or http URL is normalised to the base.
+  trimmed = trimmed.replace(/\/(mcp|sse)$/i, '')
   try {
     const parsed = new URL(trimmed)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
