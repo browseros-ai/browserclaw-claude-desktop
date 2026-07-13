@@ -42,11 +42,12 @@ const DOWN_MESSAGES = {
     'BrowserClaw does not appear to be installed on this machine. ' +
     'Install it from https://browseros.com/agents, then ask me again.',
   'installed-not-running':
-    'BrowserClaw is installed but I could not reach it on ' +
-    'http://127.0.0.1:9200. Two things to check:\n\n' +
+    'BrowserClaw is installed but I could not reach it. I checked the ' +
+    "running-port record and the default (http://127.0.0.1:9200), and " +
+    'got no response on either.\n\n' +
     '  1. Is BrowserClaw open? The MCP server runs while the app is running.\n' +
-    '  2. Is BrowserClaw running on a different port? If so, set the base URL ' +
-    'in Claude Desktop -> Settings -> BrowserClaw -> Configure.',
+    '  2. If BrowserClaw runs on a custom port, set the base URL in ' +
+    'Claude Desktop -> Settings -> BrowserClaw -> Configure.',
 }
 
 /**
