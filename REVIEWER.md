@@ -57,7 +57,7 @@ The extension forwards these tools from BrowserClaw:
 | `wait` | Pause for time / text appearance / selector match | read-only |
 | `run` | Execute a server-side script against the browser SDK | destructive |
 
-Every tool carries a `title` and either `readOnlyHint: true` or `destructiveHint: true`. Destructive tools prompt for confirmation in Claude Desktop as expected.
+Every tool BrowserClaw currently exposes carries a `title` and either `readOnlyHint: true` or `destructiveHint: true`, and destructive tools prompt for confirmation in Claude Desktop as expected. The wrapper forwards BrowserClaw's `tools/list` verbatim; it does not add, validate, or override annotations. The table above reflects what a reviewer will see when sideloading the current release.
 
 ## Debugging
 
@@ -72,7 +72,7 @@ A successful connection logs a line like:
 [browserclaw] connected to BrowserClaw {"baseUrl":"http://127.0.0.1:9200","source":"runtime","serverInfo":{...}}
 ```
 
-The `source` field indicates how the extension discovered BrowserClaw's URL: `runtime` (preferred), `manifest`, `log`, or `default`.
+The `source` field indicates how the extension discovered BrowserClaw's URL: `override` (an explicitly configured URL in Settings; loopback only), `runtime` (preferred automatic discovery), `manifest`, `log`, or `default`.
 
 ## Uninstall
 

@@ -6,6 +6,7 @@
  *
  *   { state: 'running', url,
  *     source: 'override' | 'runtime' | 'manifest' | 'log' | 'default' }
+ *   { state: 'override-not-loopback', url: null, attempted }
  *   { state: 'override-unreachable', url: null, attempted }
  *   { state: 'not-installed', url: null }
  *   { state: 'installed-not-running', url: null }
@@ -13,8 +14,9 @@
  * Precedence:
  *
  *   1. BROWSERCLAW_URL_OVERRIDE is set:
- *        parses AND probeHealth passes  -> running (override)
- *        otherwise                      -> override-unreachable
+ *        hostname NOT loopback         -> override-not-loopback
+ *        loopback AND probeHealth pass -> running (override)
+ *        loopback but probe fails      -> override-unreachable
  *
  *   2. no override:
  *        a) runtime URL (from `~/.browserclaw/runtime.json`) probes
@@ -37,6 +39,14 @@
  *        `~/.browserclaw` is missing    -> not-installed
  *        otherwise                      -> installed-not-running
  *
+ * Loopback restriction: the user-configurable override is a
+ * safeguard for custom-port setups. Only loopback hostnames
+ * (127.0.0.1, [::1], localhost) are accepted so a misconfigured or
+ * hostile override cannot make the wrapper forward Claude Desktop's
+ * MCP traffic to a public host. On-disk-discovered URLs (runtime,
+ * manifest, log) come from claw-server itself and are trusted; the
+ * default (127.0.0.1:9200) is loopback by construction.
+ *
  * Dev-mode claw-server (which uses `~/.browserclaw-dev`) is NOT
  * detected. Dev users must set BROWSERCLAW_URL_OVERRIDE explicitly.
  *
@@ -57,6 +67,28 @@ const DEFAULT_URL = 'http://127.0.0.1:9200'
 const HEALTH_PATH = '/system/health'
 const CONFIG_DIR = join(homedir(), '.browserclaw')
 const PROBE_TIMEOUT_MS = 1000
+
+/**
+ * True when `baseUrl`'s hostname is a loopback address. Accepts the
+ * three forms that resolve locally in practice: the IPv4 literal
+ * `127.0.0.1`, the IPv6 literal `::1` (either as `[::1]` or `::1`
+ * depending on URL parser), and the `localhost` hostname. Returns
+ * false on parse failure so a malformed URL is treated as non-loopback.
+ */
+function isLoopback(baseUrl) {
+  try {
+    const parsed = new URL(baseUrl)
+    const host = parsed.hostname
+    return (
+      host === '127.0.0.1' ||
+      host === '[::1]' ||
+      host === '::1' ||
+      host === 'localhost'
+    )
+  } catch {
+    return false
+  }
+}
 
 /**
  * Strip trailing slashes, validate scheme. Returns the cleaned URL or null.
@@ -113,6 +145,7 @@ async function isBrowserclawInstalled() {
  * @typedef {(
  *   | { state: 'running'; url: string;
  *       source: 'override' | 'runtime' | 'manifest' | 'log' | 'default' }
+ *   | { state: 'override-not-loopback'; url: null; attempted: string }
  *   | { state: 'override-unreachable'; url: null; attempted: string }
  *   | { state: 'not-installed'; url: null }
  *   | { state: 'installed-not-running'; url: null }
@@ -123,6 +156,12 @@ async function isBrowserclawInstalled() {
 export async function discoverBaseUrl() {
   const override = normalizeUrl(process.env.BROWSERCLAW_URL_OVERRIDE)
   if (override) {
+    // Restrict the user-configurable override to loopback so a
+    // misconfigured or hostile URL cannot make the wrapper forward
+    // Claude Desktop's MCP traffic to a public host.
+    if (!isLoopback(override)) {
+      return { state: 'override-not-loopback', url: null, attempted: override }
+    }
     if (await probeHealth(override)) {
       return { state: 'running', url: override, source: 'override' }
     }

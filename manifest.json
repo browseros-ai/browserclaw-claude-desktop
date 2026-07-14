@@ -40,8 +40,8 @@
   "user_config": {
     "url": {
       "type": "string",
-      "title": "BrowserClaw base URL (optional override)",
-      "description": "Leave blank to auto-discover on the default BrowserClaw port. Override only if you run BrowserClaw on a custom port. Example: http://127.0.0.1:9200",
+      "title": "BrowserClaw base URL (optional loopback override)",
+      "description": "Leave blank to auto-discover on the default BrowserClaw port. Override only if you run BrowserClaw on a custom port on this machine. Must be a loopback URL on 127.0.0.1, [::1], or localhost. Example: http://127.0.0.1:9200",
       "required": false,
       "default": ""
     }

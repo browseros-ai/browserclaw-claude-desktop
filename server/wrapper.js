@@ -52,11 +52,21 @@ const DOWN_MESSAGES = {
 
 /**
  * Renders the discovery result into the corresponding user-facing message.
- * `override-unreachable` interpolates the offending URL so the reader knows
- * exactly which value in Settings is stale; other states are static.
+ * `override-unreachable` and `override-not-loopback` interpolate the
+ * offending URL so the reader knows exactly which value in Settings is
+ * wrong; other states are static.
  */
 function messageForResult(result) {
   if (!result || result.state === 'running') return ''
+  if (result.state === 'override-not-loopback') {
+    return (
+      `The configured BrowserClaw URL ${result.attempted} is not a ` +
+      'loopback address. For security, only URLs on 127.0.0.1, [::1], ' +
+      'or localhost are allowed. Update the URL in Claude Desktop -> ' +
+      'Settings -> BrowserClaw -> Configure, or leave it blank to ' +
+      'auto-discover.'
+    )
+  }
   if (result.state === 'override-unreachable') {
     return (
       `The configured BrowserClaw URL ${result.attempted} is unreachable. ` +
