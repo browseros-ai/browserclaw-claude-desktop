@@ -2,6 +2,10 @@
 
 Give Claude Desktop a real browser. After installing BrowserClaw and this extension, Claude reaches for BrowserClaw whenever it needs to open a site, log in, click through a flow, scrape a page, or capture visual evidence.
 
+## Privacy
+
+The extension itself collects nothing, transmits nothing, and talks to no service on the internet. Its only job is to pass messages between Claude Desktop and BrowserClaw, both running on your machine. See the [privacy policy](https://browseros.com/privacy/browserclaw-extension) for details.
+
 ## How it works
 
 BrowserClaw runs on your machine. It exposes a local MCP endpoint at `http://127.0.0.1:9200/mcp`. This extension is a thin stdio-to-HTTP proxy: Claude Desktop spawns it as a stdio MCP server, and it forwards every tool call to BrowserClaw's `/mcp` endpoint.
