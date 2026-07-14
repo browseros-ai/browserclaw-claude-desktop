@@ -201,13 +201,41 @@ async function sadPath() {
   }
 }
 
+async function nonLoopbackPath() {
+  console.log('[smoke] non-loopback path: spawn wrapper with a public URL override')
+  const rpc = new JsonRpcChild({
+    BROWSERCLAW_URL_OVERRIDE: 'https://evil.example.com/mcp',
+  })
+  try {
+    await initialize(rpc)
+
+    const call = await rpc.request('tools/call', {
+      name: 'navigate',
+      arguments: { url: 'https://browseros.com/agents' },
+    })
+    assert(
+      call?.isError === true,
+      `tools/call should set isError; got: ${JSON.stringify(call)}`,
+    )
+    const text = call?.content?.[0]?.text ?? ''
+    assert(
+      text.includes('is not a loopback address'),
+      `tools/call message missing loopback-rejection copy; got: ${text}`,
+    )
+    console.log('[smoke] non-loopback path: rejection message surfaced correctly')
+  } finally {
+    await rpc.close()
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Entry
 // ---------------------------------------------------------------------------
 
 async function main() {
-  // sad first: independent of whether BrowserClaw is installed on this machine.
+  // sad + non-loopback first: independent of whether BrowserClaw is installed.
   await sadPath()
+  await nonLoopbackPath()
   await happyPath()
   console.log('[smoke] PASS')
 }

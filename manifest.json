@@ -2,19 +2,22 @@
   "manifest_version": "0.3",
   "name": "browserclaw",
   "display_name": "BrowserClaw",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Give Claude Desktop a real browser. This extension connects Claude to BrowserClaw, the browser your AI agents drive using your logged-in accounts.",
   "long_description": "BrowserClaw is a Chromium-based browser your AI agents drive with your existing logins. This extension is a stdio MCP proxy: it discovers a running BrowserClaw claw-server on your machine and forwards every Claude Desktop tool call to its /mcp endpoint. The browser surface, session recording, and skill catalogue all live inside BrowserClaw itself.",
   "author": {
     "name": "BrowserOS",
     "email": "hello@browseros.com",
-    "url": "https://browseros.com/agents"
+    "url": "https://github.com/browseros-ai"
   },
   "homepage": "https://browseros.com/agents",
   "documentation": "https://docs.browseros.com/browserclaw",
   "support": "https://github.com/browseros-ai/browserclaw-claude-desktop/issues",
   "icon": "icon.png",
   "license": "MIT",
+  "privacy_policies": [
+    "https://browseros.com/privacy/browserclaw-extension"
+  ],
   "keywords": [
     "browser",
     "browserclaw",
@@ -37,14 +40,14 @@
   "user_config": {
     "url": {
       "type": "string",
-      "title": "BrowserClaw base URL (optional override)",
-      "description": "Leave blank to auto-discover on the default BrowserClaw port. Override only if you run BrowserClaw on a custom port. Example: http://127.0.0.1:9200",
+      "title": "BrowserClaw base URL (optional loopback override)",
+      "description": "Leave blank to auto-discover on the default BrowserClaw port. Override only if you run BrowserClaw on a custom port on this machine. Must be a loopback URL on 127.0.0.1, [::1], or localhost. Example: http://127.0.0.1:9200",
       "required": false,
       "default": ""
     }
   },
   "compatibility": {
-    "platforms": ["darwin", "linux", "win32"],
+    "platforms": ["darwin", "win32"],
     "runtimes": {
       "node": ">=18"
     }
