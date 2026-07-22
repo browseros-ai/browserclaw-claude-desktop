@@ -46,7 +46,7 @@ Claude should call BrowserClaw's `navigate` and `read` tools and answer.
 
 Most users do not need to configure anything. The wrapper looks for BrowserClaw on `127.0.0.1:9200` by default.
 
-If you run BrowserClaw on a custom port, set the base URL in Settings -> BrowserClaw -> Configure:
+If you run BrowserClaw on a custom port, set the base URL in Settings -> Extensions -> BrowserClaw -> Configure:
 
 ```
 http://127.0.0.1:<port>
