@@ -26,7 +26,13 @@ Three one-time steps:
 
 ### Install the extension
 
-Download the latest `browserclaw-<version>.mcpb` from the [releases](https://github.com/browseros-ai/browserclaw-claude-desktop/releases) page, then drag it onto Claude Desktop's Settings window. Claude Desktop will register the extension and start the wrapper automatically.
+1. Download the latest `browserclaw-<version>.mcpb` from the [releases](https://github.com/browseros-ai/browserclaw-claude-desktop/releases) page.
+2. In Claude Desktop, open Settings.
+3. In Settings, click Extensions in the sidebar, under the Desktop app section.
+4. Click Advanced settings.
+5. On the next screen, click Install extension and select the `.mcpb` file you downloaded.
+
+Claude Desktop registers the extension and starts the wrapper automatically.
 
 ### Verify it works
 
