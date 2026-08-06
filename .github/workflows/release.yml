@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-browserclaw-claude-desktop
+  cancel-in-progress: false
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -97,8 +101,7 @@ jobs:
           key="artifacts/browserclaw-claude-desktop/${version}/browserclaw-${version}.mcpb"
           endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           release_sha=$(git rev-parse HEAD)
-          sha256=$(sha256sum "$archive" | cut -d ' ' -f1)
-          size=$(wc -c < "$archive" | tr -d '[:space:]')
+          local_sha=$(sha256sum "$archive" | cut -d ' ' -f1)
           disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
           metadata_path="$RUNNER_TEMP/browserclaw-r2-head.json"
 
@@ -115,7 +118,7 @@ jobs:
               --body "$archive" \
               --content-type application/zip \
               --content-disposition "$disposition" \
-              --metadata "component=artifacts/browserclaw-claude-desktop,target=universal,version=${version},release-sha=${release_sha},sha256=${sha256}" \
+              --metadata "component=artifacts/browserclaw-claude-desktop,target=universal,version=${version},release-sha=${release_sha},sha256=${local_sha}" \
               --if-none-match '*' >/dev/null; then
               echo "Immutable upload did not complete; checking for a matching object."
             fi
@@ -130,12 +133,10 @@ jobs:
             --arg component 'artifacts/browserclaw-claude-desktop' \
             --arg disposition "$disposition" \
             --arg release_sha "$release_sha" \
-            --arg sha256 "$sha256" \
             --arg version "$version" \
-            --argjson size "$size" \
-            '.ContentLength == $size and .ContentType == "application/zip" and .ContentDisposition == $disposition and .Metadata.component == $component and .Metadata.target == "universal" and .Metadata.version == $version and .Metadata["release-sha"] == $release_sha and .Metadata.sha256 == $sha256' \
+            '.ContentLength > 0 and .ContentType == "application/zip" and .ContentDisposition == $disposition and .Metadata.component == $component and .Metadata.target == "universal" and .Metadata.version == $version and .Metadata["release-sha"] == $release_sha and ((.Metadata.sha256 // "") | test("^[0-9a-f]{64}$"))' \
             "$metadata_path" >/dev/null; then
-            echo "::error::Immutable R2 object does not match ${archive}: ${key}"
+            echo "::error::Immutable R2 object has an invalid release binding: ${key}"
             exit 1
           fi
 
@@ -146,11 +147,18 @@ jobs:
             --bucket "$R2_BUCKET" \
             --key "$key" \
             "$canonical" >/dev/null
+          stored_sha=$(jq -r '.Metadata.sha256' "$metadata_path")
+          stored_size=$(jq -r '.ContentLength' "$metadata_path")
           canonical_sha=$(sha256sum "$canonical" | cut -d ' ' -f1)
-          if [ "$canonical_sha" != "$sha256" ]; then
-            echo "::error::Immutable R2 object content does not match ${archive}: ${key}"
+          canonical_size=$(wc -c < "$canonical" | tr -d '[:space:]')
+          if [ "$canonical_sha" != "$stored_sha" ] || [ "$canonical_size" != "$stored_size" ]; then
+            echo "::error::Immutable R2 content does not match its release binding: ${key}"
             exit 1
           fi
+          if [ "$canonical_sha" != "$local_sha" ]; then
+            echo "Reusing canonical R2 bytes for this source-bound release."
+          fi
+          cp "$canonical" "$archive"
 
           {
             echo '### BrowserClaw Claude Desktop R2 publish'
@@ -187,6 +195,25 @@ jobs:
           sha256=$(sha256sum "build/browserclaw-${version}.mcpb" | cut -d ' ' -f1)
           size=$(wc -c < "build/browserclaw-${version}.mcpb" | tr -d '[:space:]')
           disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
+
+          current_path="$RUNNER_TEMP/browserclaw-r2-current-latest.json"
+          if aws s3api head-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$destination" > "$current_path" 2>/dev/null; then
+            current_version=$(jq -r '.Metadata.version // empty' "$current_path")
+            if ! [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Latest R2 object has an invalid stable version: ${current_version:-missing}"
+              exit 1
+            fi
+            newest=$(printf '%s\n%s\n' "$current_version" "$version" | sort -V | tail -n 1)
+            if [ "$newest" != "$version" ]; then
+              echo "Latest remains at ${current_version}; refusing to promote older release ${version}."
+              echo "- Latest unchanged: \`https://cdn.browseros.com/${destination}\` is newer (${current_version})" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
 
           aws s3api copy-object \
             --endpoint-url "$endpoint" \
