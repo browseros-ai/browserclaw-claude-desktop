@@ -1,6 +1,6 @@
 {
   "name": "browseros-neo-claude-desktop",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "BrowserOS neo extension for Claude Desktop. Gives Claude a real browser driven with your existing logins.",
   "license": "MIT",
