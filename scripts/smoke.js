@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/**
- * Smoke harness for server/wrapper.js.
- *
- * Dev-machine only. Not wired into CI in v1, because CI does not have a
- * running BrowserClaw claw-server.
- *
- * Run with:
- *   node scripts/smoke.js                       # auto-discovers BrowserClaw
- *   BROWSERCLAW_URL_OVERRIDE=... node scripts/smoke.js
- *
- * What it does (sad first so contributors without BrowserClaw still verify
- * the disconnect-error wiring before the happy path can fail):
- *   1. Sad path: spawn the wrapper with BROWSERCLAW_URL_OVERRIDE pointed at
- *      port 1 (intentionally dead). Asserts:
- *        - tools/list returns an empty array
- *        - tools/call returns isError: true with the down message
- *
- *   2. Happy path: spawn the wrapper, do initialize, list tools, call
- *      navigate("https://browseros.com/agents"). Asserts:
- *        - initialize returns serverInfo and capabilities
- *        - tools/list contains at least one tool
- *        - tools/call returns a non-error result
- *
- * Exit 0 on all assertions passing, non-zero on the first failure.
- */
 
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
@@ -32,10 +7,6 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WRAPPER_PATH = join(__dirname, '..', 'server', 'wrapper.js')
-
-// ---------------------------------------------------------------------------
-// Minimal JSON-RPC over stdio harness.
-// ---------------------------------------------------------------------------
 
 class JsonRpcChild {
   constructor(env = {}) {
@@ -58,7 +29,6 @@ class JsonRpcChild {
 
   _onData(chunk) {
     this.buffer += chunk
-    // MCP stdio framing is one JSON-RPC message per line.
     let nl = this.buffer.indexOf('\n')
     while (nl !== -1) {
       const line = this.buffer.slice(0, nl).trim()
@@ -82,7 +52,6 @@ class JsonRpcChild {
       if (parsed.error) reject(new Error(JSON.stringify(parsed.error)))
       else resolve(parsed.result)
     }
-    // Notifications (no id) are ignored; the smoke harness doesn't need them.
   }
 
   request(method, params) {
@@ -100,14 +69,13 @@ class JsonRpcChild {
   }
 
   async close() {
+    const exited = this.child.exitCode === null ? once(this.child, 'exit') : null
     this.child.stdin.end()
-    if (this.child.exitCode === null) await once(this.child, 'exit')
+    if (!exited) return
+    this.child.kill('SIGTERM')
+    await exited
   }
 }
-
-// ---------------------------------------------------------------------------
-// Assertions
-// ---------------------------------------------------------------------------
 
 function assert(cond, msg) {
   if (!cond) {
@@ -126,12 +94,8 @@ async function initialize(rpc) {
   return result
 }
 
-// ---------------------------------------------------------------------------
-// Scenarios
-// ---------------------------------------------------------------------------
-
 async function happyPath() {
-  console.log('[smoke] happy path: spawn wrapper, expect BrowserClaw reachable')
+  console.log('[smoke] happy path: spawn wrapper, expect BrowserOS neo reachable')
   const rpc = new JsonRpcChild()
   try {
     const init = await initialize(rpc)
@@ -142,7 +106,7 @@ async function happyPath() {
     assert(Array.isArray(list?.tools), 'tools/list did not return tools[]')
     assert(
       list.tools.length > 0,
-      `tools/list returned empty; BrowserClaw running? got: ${JSON.stringify(list)}`,
+      `tools/list returned empty; BrowserOS neo running? got: ${JSON.stringify(list)}`,
     )
     console.log(`[smoke] happy path: got ${list.tools.length} tools`)
 
@@ -150,10 +114,7 @@ async function happyPath() {
       name: 'navigate',
       arguments: { url: 'https://browseros.com/agents' },
     })
-    // The wrapper's job is to faithfully forward. Whether the specific
-    // tool call succeeds depends on claw-server's schema, which is out
-    // of scope for this smoke test. Assert only that the response is a
-    // well-formed tool-result envelope.
+    // Tool schemas can change independently, so only the forwarded envelope is stable here.
     assert(
       Array.isArray(call?.content),
       `tools/call returned malformed envelope: ${JSON.stringify(call)}`,
@@ -169,7 +130,7 @@ async function happyPath() {
 async function sadPath() {
   console.log('[smoke] sad path: spawn wrapper with dead URL override')
   const rpc = new JsonRpcChild({
-    BROWSERCLAW_URL_OVERRIDE: 'http://127.0.0.1:1',
+    BROWSEROS_NEO_URL_OVERRIDE: 'http://127.0.0.1:1',
   })
   try {
     await initialize(rpc)
@@ -178,7 +139,7 @@ async function sadPath() {
     assert(Array.isArray(list?.tools), 'tools/list did not return tools[]')
     assert(
       list.tools.length === 0,
-      `tools/list should be empty when BrowserClaw is unreachable; got: ${JSON.stringify(list)}`,
+      `tools/list should be empty when BrowserOS neo is unreachable; got: ${JSON.stringify(list)}`,
     )
     console.log('[smoke] sad path: tools/list returned empty')
 
@@ -204,7 +165,7 @@ async function sadPath() {
 async function nonLoopbackPath() {
   console.log('[smoke] non-loopback path: spawn wrapper with a public URL override')
   const rpc = new JsonRpcChild({
-    BROWSERCLAW_URL_OVERRIDE: 'https://evil.example.com/mcp',
+    BROWSEROS_NEO_URL_OVERRIDE: 'https://evil.example.com/mcp',
   })
   try {
     await initialize(rpc)
@@ -228,12 +189,8 @@ async function nonLoopbackPath() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Entry
-// ---------------------------------------------------------------------------
-
 async function main() {
-  // sad + non-loopback first: independent of whether BrowserClaw is installed.
+  // Failure paths run first because the happy path requires a live BrowserOS neo instance.
   await sadPath()
   await nonLoopbackPath()
   await happyPath()
