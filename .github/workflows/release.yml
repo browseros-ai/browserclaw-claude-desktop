@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: release-browserclaw-claude-desktop
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   build-and-release:
@@ -197,11 +197,12 @@ jobs:
           disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
 
           current_path="$RUNNER_TEMP/browserclaw-r2-current-latest.json"
+          current_error="$RUNNER_TEMP/browserclaw-r2-current-latest.err"
           if aws s3api head-object \
             --endpoint-url "$endpoint" \
             --region auto \
             --bucket "$R2_BUCKET" \
-            --key "$destination" > "$current_path" 2>/dev/null; then
+            --key "$destination" > "$current_path" 2> "$current_error"; then
             current_version=$(jq -r '.Metadata.version // empty' "$current_path")
             if ! [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::Latest R2 object has an invalid stable version: ${current_version:-missing}"
@@ -213,6 +214,9 @@ jobs:
               echo "- Latest unchanged: \`https://cdn.browseros.com/${destination}\` is newer (${current_version})" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
+          elif ! grep -Eq '\((404|NoSuchKey|NotFound)\)' "$current_error"; then
+            echo "::error::Unable to inspect the current latest R2 object; refusing to overwrite it."
+            exit 1
           fi
 
           aws s3api copy-object \
