@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/**
- * Entry point for the BrowserClaw Claude Desktop extension.
- *
- * Claude Desktop spawns this as a stdio MCP server. We turn around and act
- * as an MCP client against the BrowserClaw claw-server's StreamableHTTP MCP
- * endpoint at <discovered base>/mcp. Each Claude Desktop request is
- * forwarded to BrowserClaw verbatim, so Claude sees BrowserClaw's real tool
- * definitions.
- *
- * Why the low-level Server (not McpServer):
- *   McpServer expects each tool registered up front. We are a proxy: we do
- *   not know the tool surface at start time, and we do not want to. Server
- *   plus setRequestHandler lets us forward by schema.
- */
 
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -31,73 +17,52 @@ import { openInnerClient, TransportConnectError } from './transport.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// ---------------------------------------------------------------------------
-// User-facing messages keyed by discovery state. Each message is a single
-// self-contained instruction: what the reader should do next. Empty string
-// for `running` because there is nothing to say on the happy path.
-// ---------------------------------------------------------------------------
-
 const DOWN_MESSAGES = {
   'not-installed':
-    'BrowserClaw does not appear to be installed on this machine. ' +
+    'BrowserOS neo does not appear to be installed on this machine. ' +
     'Install it from https://browseros.com/agents, then ask me again.',
   'installed-not-running':
-    'BrowserClaw is installed but I could not reach it. I checked the ' +
+    'BrowserOS neo is installed but I could not reach it. I checked the ' +
     "running-port record and the default (http://127.0.0.1:9200), and " +
     'got no response on either.\n\n' +
-    '  1. Is BrowserClaw open? The MCP server runs while the app is running.\n' +
-    '  2. If BrowserClaw runs on a custom port, set the base URL in ' +
-    'Claude Desktop -> Settings -> BrowserClaw -> Configure.',
+    '  1. Is BrowserOS neo open? The MCP server runs while the app is running.\n' +
+    '  2. If BrowserOS neo runs on a custom port, set the base URL in ' +
+    'Claude Desktop -> Settings -> BrowserOS neo -> Configure.',
 }
 
-/**
- * Renders the discovery result into the corresponding user-facing message.
- * `override-unreachable` and `override-not-loopback` interpolate the
- * offending URL so the reader knows exactly which value in Settings is
- * wrong; other states are static.
- */
 function messageForResult(result) {
   if (!result || result.state === 'running') return ''
   if (result.state === 'override-not-loopback') {
     return (
-      `The configured BrowserClaw URL ${result.attempted} is not a ` +
+      `The configured BrowserOS neo URL ${result.attempted} is not a ` +
       'loopback address. For security, only URLs on 127.0.0.1, [::1], ' +
       'or localhost are allowed. Update the URL in Claude Desktop -> ' +
-      'Settings -> BrowserClaw -> Configure, or leave it blank to ' +
+      'Settings -> BrowserOS neo -> Configure, or leave it blank to ' +
       'auto-discover.'
     )
   }
   if (result.state === 'override-unreachable') {
     return (
-      `The configured BrowserClaw URL ${result.attempted} is unreachable. ` +
-      'Check the URL in Claude Desktop -> Settings -> BrowserClaw -> ' +
+      `The configured BrowserOS neo URL ${result.attempted} is unreachable. ` +
+      'Check the URL in Claude Desktop -> Settings -> BrowserOS neo -> ' +
       'Configure, or leave it blank to auto-discover on the default port.'
     )
   }
   return DOWN_MESSAGES[result.state]
 }
 
-// ---------------------------------------------------------------------------
-// stderr-only logging. Anything on stdout would corrupt the JSON-RPC framing.
-// ---------------------------------------------------------------------------
-
 function logInfo(msg, extra) {
   if (extra !== undefined) {
-    process.stderr.write(`[browserclaw] ${msg} ${JSON.stringify(extra)}\n`)
+    process.stderr.write(`[browseros-neo] ${msg} ${JSON.stringify(extra)}\n`)
   } else {
-    process.stderr.write(`[browserclaw] ${msg}\n`)
+    process.stderr.write(`[browseros-neo] ${msg}\n`)
   }
 }
 
 function logError(msg, err) {
   const detail = err instanceof Error ? err.message : String(err)
-  process.stderr.write(`[browserclaw] error: ${msg}: ${detail}\n`)
+  process.stderr.write(`[browseros-neo] error: ${msg}: ${detail}\n`)
 }
-
-// ---------------------------------------------------------------------------
-// Version stamping from package.json so the inner client identity matches the
-// version users see in their package.
-// ---------------------------------------------------------------------------
 
 async function readWrapperVersion() {
   try {
@@ -109,17 +74,7 @@ async function readWrapperVersion() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Inner client lifecycle. Single live connection at a time; the wrapper
-// transparently reconnects on the next call when BrowserClaw comes back up.
-// ---------------------------------------------------------------------------
-
-/**
- * Emit a discovery-outcome log line only when the outcome key changes.
- * Without this, a long offline period would spam stderr with one
- * identical line per Claude Desktop poll, since callers re-enter
- * tryOpenInner on every request that finds state.inner === null.
- */
+// Deduplicate offline polling noise without suppressing the first reconnect log.
 function logDiscoveryOutcome(state, msg, extra) {
   const key = extra === undefined ? msg : `${msg}|${JSON.stringify(extra)}`
   if (state.lastDiscoveryLog === key) return
@@ -127,12 +82,6 @@ function logDiscoveryOutcome(state, msg, extra) {
   logInfo(msg, extra)
 }
 
-/**
- * Try to discover BrowserClaw and open the inner client. Never throws.
- * Returns the handle on success, null on failure (caller decides what to
- * surface). Stashes the latest discovery result on `state.lastResult` so
- * the tool-call error handler can pick the right user-facing message.
- */
 async function tryOpenInner(state, version) {
   const result = await discoverBaseUrl()
   state.lastResult = result
@@ -148,7 +97,7 @@ async function tryOpenInner(state, version) {
 
   try {
     const inner = await openInnerClient(result.url, version)
-    logDiscoveryOutcome(state, 'connected to BrowserClaw', {
+    logDiscoveryOutcome(state, 'connected to BrowserOS neo', {
       baseUrl: result.url,
       source: result.source,
       serverInfo: inner.serverInfo,
@@ -162,17 +111,13 @@ async function tryOpenInner(state, version) {
           : String(err.cause ?? '')
       logDiscoveryOutcome(
         state,
-        'discovery: BrowserClaw URL found but connect failed',
+        'discovery: BrowserOS neo URL found but connect failed',
         {
           baseUrl: result.url,
           attempted: `${result.url}/mcp`,
           cause: causeMsg,
         },
       )
-      // Transport rejects fold into the same state the user was already in.
-      // Re-tag as installed-not-running so the tool-call message tells the
-      // reader to check that BrowserClaw is open and on the expected port,
-      // instead of leaving the last successful `running` result stashed.
       state.lastResult = { state: 'installed-not-running', url: null }
     } else {
       logError('inner connect threw', err)
@@ -181,16 +126,7 @@ async function tryOpenInner(state, version) {
   }
 }
 
-/**
- * Single-flight reconnect: concurrent callers share one in-flight
- * `tryOpenInner` so we never end up with multiple live MCP Clients pointing
- * at the same BrowserClaw instance, each holding an open HTTP transport.
- * The first caller to find `state.inner === null` creates the promise on
- * `state.reconnect` and stores its resolved value into `state.inner`.
- * Subsequent callers that race in await the same promise. `.finally()`
- * clears `state.reconnect` after the promise settles so the next disconnect
- * can trigger a fresh attempt.
- */
+// Share one reconnect promise so concurrent calls cannot create duplicate MCP clients.
 async function getOrOpenInner(state, version) {
   if (state.inner) return state.inner
   if (!state.reconnect) {
@@ -199,18 +135,10 @@ async function getOrOpenInner(state, version) {
     })
   }
   const inner = await state.reconnect
-  // Both racing callers will reach this line and idempotently set the same
-  // resolved value; assignment is intentional.
   state.inner = inner
   return inner
 }
 
-/**
- * Run `op` against the current inner client, with one transparent reconnect
- * attempt on transport failure. Returns the inner client's response.
- *
- * Throws if both the first call and the post-reconnect retry fail.
- */
 async function callWithReconnect(state, version, op) {
   if (state.inner) {
     try {
@@ -219,10 +147,7 @@ async function callWithReconnect(state, version, op) {
       logError('inner call failed, will try reconnect', err)
       const stale = state.inner
       state.inner = null
-      // Clear the dedup key so a successful reconnect logs the new
-      // "connected to BrowserClaw" line even when the URL+serverInfo are
-      // identical to the previous connect (the common case for a
-      // transient transport blip).
+      // A successful reconnect must be visible even when it returns to the same URL.
       state.lastDiscoveryLog = undefined
       try {
         await stale.close()
@@ -237,20 +162,12 @@ async function callWithReconnect(state, version, op) {
   return await op(inner)
 }
 
-// ---------------------------------------------------------------------------
-// Build the outer Server and wire request handlers.
-// ---------------------------------------------------------------------------
-
 function buildOuterServer({ initialInner, version, state }) {
-  // Match the inner server's capabilities when we have them so Claude
-  // Desktop sees the BrowserClaw surface. When we do not (BrowserClaw was
-  // down at startup), advertise tools-only so Claude does not give up on
-  // the extension entirely. tools/call will return the down error in that
-  // case.
+  // Advertising tools while offline lets Claude retry instead of disabling the extension.
   const capabilities = initialInner?.capabilities ?? { tools: {} }
 
   const server = new Server(
-    { name: 'browserclaw-claude-desktop', version },
+    { name: 'browseros-neo-claude-desktop', version },
     { capabilities },
   )
 
@@ -260,9 +177,6 @@ function buildOuterServer({ initialInner, version, state }) {
         inner.client.listTools(request.params),
       )
     } catch {
-      // Decision per plan: return an empty list when BrowserClaw is
-      // unreachable. We do NOT advertise tools we cannot back, and we do
-      // NOT cache.
       return { tools: [] }
     }
   })
@@ -273,9 +187,7 @@ function buildOuterServer({ initialInner, version, state }) {
         inner.client.callTool(request.params),
       )
     } catch {
-      // MCP convention for tool-level failures: return a tool-result with
-      // isError true. Throwing would surface as a protocol-level error
-      // which Claude tends to swallow.
+      // Protocol-level errors may be swallowed, so connection failures use a tool result.
       return {
         content: [{ type: 'text', text: messageForResult(state.lastResult) }],
         isError: true,
@@ -287,20 +199,12 @@ function buildOuterServer({ initialInner, version, state }) {
     if (!state.inner) return {}
     try {
       await state.inner.client.ping()
-    } catch {
-      // Ping failures should not fail loudly; the next real call will
-      // trigger reconnect.
-    }
+    } catch {}
     return {}
   })
 
   return server
 }
-
-// ---------------------------------------------------------------------------
-// Lifecycle: install signal handlers so we tear down the inner client on
-// shutdown instead of leaking sockets.
-// ---------------------------------------------------------------------------
 
 function installSignalHandlers(state, server) {
   let shuttingDown = false
@@ -320,10 +224,6 @@ function installSignalHandlers(state, server) {
   process.on('SIGTERM', () => void shutdown('SIGTERM'))
   process.on('SIGINT', () => void shutdown('SIGINT'))
 }
-
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
 
 async function main() {
   const version = await readWrapperVersion()

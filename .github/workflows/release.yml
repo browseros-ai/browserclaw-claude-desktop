@@ -78,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(jq -r '.version' manifest.json)
-          ARCHIVE="build/browserclaw-${VERSION}.mcpb"
+          ARCHIVE="build/browseros-neo-${VERSION}.mcpb"
           if [ ! -f "${ARCHIVE}" ]; then
             echo "::error::Expected archive ${ARCHIVE} not found."
             exit 1
@@ -97,12 +97,12 @@ jobs:
         run: |
           set -euo pipefail
           version=$(jq -r '.version' manifest.json)
-          archive="build/browserclaw-${version}.mcpb"
+          archive="build/browseros-neo-${version}.mcpb"
           key="artifacts/browserclaw-claude-desktop/${version}/browserclaw-${version}.mcpb"
           endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           release_sha=$(git rev-parse HEAD)
           local_sha=$(sha256sum "$archive" | cut -d ' ' -f1)
-          disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
+          disposition="attachment; filename=\"browseros-neo-${version}.mcpb\""
           metadata_path="$RUNNER_TEMP/browserclaw-r2-head.json"
 
           if ! aws s3api head-object \
@@ -169,11 +169,9 @@ jobs:
       - name: Create GitHub Release and upload archive
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: build/browserclaw-*.mcpb
+          files: build/browseros-neo-*.mcpb
           fail_on_unmatched_files: true
           generate_release_notes: true
-          # Mark prereleases when the tag has a -suffix (e.g. v0.1.0-rc.1)
-          # so users on the stable channel are not nudged to install them.
           prerelease: ${{ contains(github.ref_name, '-') }}
 
       - name: Promote stable archive to latest on R2
@@ -192,9 +190,9 @@ jobs:
           destination='artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb'
           endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           release_sha=$(git rev-parse HEAD)
-          sha256=$(sha256sum "build/browserclaw-${version}.mcpb" | cut -d ' ' -f1)
-          size=$(wc -c < "build/browserclaw-${version}.mcpb" | tr -d '[:space:]')
-          disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
+          sha256=$(sha256sum "build/browseros-neo-${version}.mcpb" | cut -d ' ' -f1)
+          size=$(wc -c < "build/browseros-neo-${version}.mcpb" | tr -d '[:space:]')
+          disposition="attachment; filename=\"browseros-neo-${version}.mcpb\""
 
           current_path="$RUNNER_TEMP/browserclaw-r2-current-latest.json"
           current_error="$RUNNER_TEMP/browserclaw-r2-current-latest.err"

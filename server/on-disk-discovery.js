@@ -1,34 +1,4 @@
-/**
- * On-disk discovery helpers.
- *
- * claw-server writes its actually-bound base URL to three places
- * whenever it boots successfully. In descending order of preference:
- *
- *   1. `<configDir>/runtime.json` — single-purpose JSON blob shaped
- *      `{ "url": "http://..." }`. Written atomically (write-to-tmp
- *      then rename) immediately after `Bun.serve()` returns, so a
- *      concurrent reader either sees the previous content or the new
- *      content, never a torn write. Exists after ANY successful bind;
- *      no harness link required. This is the primary source of truth.
- *
- *   2. `<configDir>/mcp-manager/manifest.json` — maintained by the
- *      agent-mcp-manager library that ships inside BrowserOS. On every
- *      boot, `migrateMcpUrls()` in claw-server rewrites any recorded
- *      server URL to the current `publicMcpUrl()`, so this file's
- *      `.servers["BrowserClaw"].spec.url` reflects the running port.
- *      Only present after at least one harness (Claude Code / Claude
- *      Desktop / etc.) has been linked. Kept as a backup source for
- *      compatibility with claw-server builds that predate `runtime.json`.
- *
- *   3. `<configDir>/claw-server.log` — pino-shaped JSON per line. The
- *      line `{"msg":"claw-server listening","url":"http://..."}` is
- *      written immediately after `Bun.serve()` returns. Kept as a
- *      final on-disk fallback for the same predates-runtime.json
- *      compatibility reason.
- *
- * All three functions return the recorded URL or null. Never throw.
- * Pure module: no shared mutable state, no SDK imports.
- */
+/** Read BrowserOS neo discovery records from the legacy state directory. */
 
 import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -37,27 +7,12 @@ const RUNTIME_REL = 'runtime.json'
 const MANIFEST_REL = 'mcp-manager/manifest.json'
 const LOG_REL = 'claw-server.log'
 const LOG_LISTEN_MSG = 'claw-server listening'
+const MCP_SERVER_NAMES = ['BrowserOS neo', 'BrowserClaw']
 
-// 1 MiB tail balances two forces: the bind line is written first thing
-// after listen (so a small window nearly always catches it), but the log
-// file is appended to across restarts within a 24-hour rotation window
-// and can be chatty. 1 MiB covers roughly 4000 typical JSON log lines,
-// which comfortably survives multi-hour sessions without paying for a
-// full-file read (the file itself is capped at 20 MiB by rotation).
+// One MiB covers long sessions without reading the full 20 MiB rotating log.
 const LOG_TAIL_BYTES = 1024 * 1024
 
-/**
- * Read the claw-server runtime record and return `.url` if present.
- * Returns null on any failure (missing file, malformed JSON, missing
- * or non-string `.url`). Never throws.
- *
- * This file is written atomically by claw-server immediately after
- * successful bind, so a healthy read reflects the current running URL.
- *
- * @param {string} configDir Absolute path to the claw-server state
- *   directory, typically `~/.browserclaw`.
- * @returns {Promise<string | null>}
- */
+/** Return the recorded runtime URL, or null for unreadable or invalid data. */
 export async function readRuntimeUrl(configDir) {
   const path = join(configDir, RUNTIME_REL)
   let raw
@@ -74,17 +29,7 @@ export async function readRuntimeUrl(configDir) {
   }
 }
 
-/**
- * Read the mcp-manager manifest and extract the recorded BrowserClaw
- * base URL. Returns the URL string when the manifest has a
- * `.servers["BrowserClaw"]` entry with an http or sse transport.
- * Returns null for any other outcome (missing file, malformed JSON,
- * missing entry, stdio transport).
- *
- * @param {string} configDir Absolute path to the claw-server state
- *   directory, typically `~/.browserclaw`.
- * @returns {Promise<string | null>}
- */
+/** Prefer the BrowserOS neo manifest entry, then its legacy BrowserClaw alias. */
 export async function readManifestUrl(configDir) {
   const path = join(configDir, MANIFEST_REL)
   let raw
@@ -99,34 +44,19 @@ export async function readManifestUrl(configDir) {
   } catch {
     return null
   }
-  const entry = doc?.servers?.BrowserClaw
-  const spec = entry?.spec
-  if (!spec || typeof spec.url !== 'string') return null
-  // Accept both the string form ("transport": "http") and the tagged-object
-  // form ("transport": {"type": "http", ...}). @browseros/agent-mcp-manager
-  // emits the string form today; the object form is the MCP-spec shape and
-  // could appear if the manifest is populated by a different producer.
-  const transport =
-    typeof spec.transport === 'string'
-      ? spec.transport
-      : spec.transport?.type
-  if (transport !== 'http' && transport !== 'sse') return null
-  return spec.url
+  for (const serverName of MCP_SERVER_NAMES) {
+    const spec = doc?.servers?.[serverName]?.spec
+    if (!spec || typeof spec.url !== 'string') continue
+    const transport =
+      typeof spec.transport === 'string'
+        ? spec.transport
+        : spec.transport?.type
+    if (transport === 'http' || transport === 'sse') return spec.url
+  }
+  return null
 }
 
-/**
- * Read the tail of the claw-server log and return the URL from the
- * most recent successful-listen line. Returns null when the file
- * doesn't exist, contains no listen line, or is otherwise unparseable.
- *
- * Reads only the last `LOG_TAIL_BYTES` to avoid pulling in a
- * rotated-but-not-yet-truncated file. Malformed JSON lines are
- * silently skipped so a transient stray write doesn't break discovery.
- *
- * @param {string} configDir Absolute path to the claw-server state
- *   directory.
- * @returns {Promise<string | null>}
- */
+/** Return the most recent listening URL from the bounded log tail. */
 export async function readLogUrl(configDir) {
   const path = join(configDir, LOG_REL)
   let handle
@@ -144,8 +74,7 @@ export async function readLogUrl(configDir) {
     const buf = Buffer.alloc(len)
     await handle.read(buf, 0, len, position)
     const text = buf.toString('utf8')
-    // If the tail started mid-line (position > 0), the first fragment
-    // is discarded so we never parse a truncated JSON line.
+    // A bounded tail may begin with an unparseable partial record.
     const lines = text.split('\n')
     if (position > 0 && lines.length > 0) lines.shift()
     for (let i = lines.length - 1; i >= 0; i--) {

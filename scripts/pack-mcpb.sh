@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-#
-# Pack the extension into a .mcpb archive for sideload or directory submission.
-#
-# Output: build/browserclaw-<version>.mcpb
-#
-# The script reads the version from manifest.json so the archive name always
-# matches what Claude Desktop displays after install.
 
 set -euo pipefail
 
@@ -24,23 +17,15 @@ if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
 fi
 
 BUILD_DIR="$ROOT_DIR/build"
-OUT="$BUILD_DIR/browserclaw-$VERSION.mcpb"
+OUT="$BUILD_DIR/browseros-neo-$VERSION.mcpb"
 
 mkdir -p "$BUILD_DIR"
 rm -f "$OUT"
 
-# Install production dependencies so node_modules is present in the archive.
-# Claude Desktop spawns `node server/wrapper.js` directly and Node's module
-# resolution needs node_modules next to the entry point. We do NOT ship dev
-# tooling.
+# Claude Desktop runs the entry point directly, so runtime dependencies must be bundled.
 echo "Installing production dependencies..."
-# --loglevel=warn (not --silent) so resolve / download failures still surface
-# their reason. set -euo pipefail at the top would abort on a non-zero exit
-# regardless, but the operator needs to see why.
-npm install --omit=dev --no-audit --no-fund --loglevel=warn
+npm ci --omit=dev --no-audit --no-fund --loglevel=warn
 
-# .mcpb is a ZIP. Include only what the runtime needs.
-# Excludes: build artifacts, git metadata, dev scripts, editor cruft.
 zip -r "$OUT" \
   manifest.json \
   package.json \

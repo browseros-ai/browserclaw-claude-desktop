@@ -1,25 +1,31 @@
 {
   "manifest_version": "0.3",
   "name": "browserclaw",
-  "display_name": "BrowserClaw",
-  "version": "0.4.0",
-  "description": "Give Claude Desktop a real browser. This extension connects Claude to BrowserClaw, the browser your AI agents drive using your logged-in accounts.",
-  "long_description": "BrowserClaw is a Chromium-based browser your AI agents drive with your existing logins. This extension is a stdio MCP proxy: it discovers a running BrowserClaw claw-server on your machine and forwards every Claude Desktop tool call to its /mcp endpoint. The browser surface, session recording, and skill catalogue all live inside BrowserClaw itself.",
+  "display_name": "BrowserOS neo",
+  "version": "0.5.0",
+  "description": "Give Claude Desktop a real browser. This extension connects Claude to BrowserOS neo, the browser your AI agents drive using your logged-in accounts.",
+  "long_description": "BrowserOS neo is a Chromium-based browser your AI agents drive with your existing logins. This extension is a stdio MCP proxy: it discovers a running BrowserOS neo server on your machine and forwards every Claude Desktop tool call to its /mcp endpoint. The browser surface, session recording, and skill catalogue all live inside BrowserOS neo itself.",
   "author": {
     "name": "BrowserOS",
     "email": "hello@browseros.com",
     "url": "https://github.com/browseros-ai"
   },
   "homepage": "https://browseros.com/agents",
-  "documentation": "https://docs.browseros.com/browserclaw",
-  "support": "https://github.com/browseros-ai/browserclaw-claude-desktop/issues",
+  "documentation": "https://docs.browseros.com/neo/mcp/claude-desktop",
+  "support": "https://github.com/browseros-ai/browseros-claude-desktop/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browseros-ai/browseros-claude-desktop.git"
+  },
   "icon": "icon.png",
   "license": "MIT",
   "privacy_policies": [
-    "https://browseros.com/privacy/browserclaw-extension"
+    "https://docs.browseros.com/neo/privacy"
   ],
   "keywords": [
     "browser",
+    "browseros",
+    "browseros-neo",
     "browserclaw",
     "chromium",
     "web-automation",
@@ -33,15 +39,15 @@
       "command": "node",
       "args": ["${__dirname}/server/wrapper.js"],
       "env": {
-        "BROWSERCLAW_URL_OVERRIDE": "${user_config.url}"
+        "BROWSEROS_NEO_URL_OVERRIDE": "${user_config.url}"
       }
     }
   },
   "user_config": {
     "url": {
       "type": "string",
-      "title": "BrowserClaw base URL (optional loopback override)",
-      "description": "Leave blank to auto-discover on the default BrowserClaw port. Override only if you run BrowserClaw on a custom port on this machine. Must be a loopback URL on 127.0.0.1, [::1], or localhost. Example: http://127.0.0.1:9200",
+      "title": "BrowserOS neo base URL (optional loopback override)",
+      "description": "Leave blank to auto-discover on the default BrowserOS neo port. Override only if you run BrowserOS neo on a custom port on this machine. Must be a loopback URL on 127.0.0.1, [::1], or localhost. Example: http://127.0.0.1:9200",
       "required": false,
       "default": ""
     }
