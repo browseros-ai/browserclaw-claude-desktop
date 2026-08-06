@@ -12,6 +12,8 @@ Claude Desktop loads the extension automatically.
 
 You also need [BrowserOS neo](https://browseros.com/agents) and [Claude Desktop](https://claude.ai/download).
 
+> **NOTE:** BrowserClaw was renamed to **BrowserOS neo**. This repository contains only the Claude Desktop extension; get BrowserOS binaries from the [main BrowserOS repository](https://github.com/browseros-ai/BrowserOS).
+
 ## Try it
 
 Open BrowserOS neo, then ask Claude:
