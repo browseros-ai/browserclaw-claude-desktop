@@ -2,6 +2,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Semver tag to release
+        required: true
+        type: string
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -26,6 +31,8 @@ jobs:
 
       - name: Check out repo at tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -62,12 +69,18 @@ jobs:
         # common mistake of tagging without bumping the manifest, which
         # would produce an archive named after the manifest version
         # rather than the tag and confuse Claude Desktop's update flow.
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "::error::Invalid release tag: ${RELEASE_TAG}"
+            exit 1
+          fi
+          TAG_VERSION="${RELEASE_TAG#v}"
           MANIFEST_VERSION=$(jq -r '.version' manifest.json)
           if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} (version ${TAG_VERSION}) does not match manifest.json version ${MANIFEST_VERSION}. Bump manifest.json and re-tag."
+            echo "::error::Tag ${RELEASE_TAG} (version ${TAG_VERSION}) does not match manifest.json version ${MANIFEST_VERSION}. Bump manifest.json and re-tag."
             exit 1
           fi
           echo "Tag and manifest agree on ${MANIFEST_VERSION}."
@@ -173,10 +186,11 @@ jobs:
           files: build/browseros-neo-*.mcpb
           fail_on_unmatched_files: true
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}
 
       - name: Promote stable archive to latest on R2
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(inputs.tag || github.ref_name, '-') }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_EC2_METADATA_DISABLED: 'true'
