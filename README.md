@@ -2,7 +2,7 @@
 
 ## Install the extension
 
-1. Download the latest `browserclaw-<version>.mcpb` from the [releases](https://github.com/browseros-ai/browserclaw-claude-desktop/releases) page.
+1. [Download the latest BrowserClaw extension](https://cdn.browseros.com/artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb).
 2. In Claude Desktop, open Settings.
 3. In Settings, click Extensions in the sidebar, under the Desktop app section.
 4. Click Advanced settings.
@@ -26,7 +26,7 @@ Claude can now use BrowserClaw to open sites, sign in, click through pages, and 
 
 **Claude does not use BrowserClaw:** Ask it to "use BrowserClaw" for the task.
 
-**The extension does not load:** Open BrowserClaw at least once, then reinstall the latest `.mcpb` from the [releases](https://github.com/browseros-ai/browserclaw-claude-desktop/releases) page.
+**The extension does not load:** Open BrowserClaw at least once, then [download and reinstall the latest extension](https://cdn.browseros.com/artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb).
 
 ## Privacy
 
