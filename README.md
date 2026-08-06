@@ -2,7 +2,7 @@
 
 ## Install the extension
 
-1. [Download the latest BrowserOS neo extension](https://cdn.browseros.com/artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb).
+1. [Download BrowserOS neo extension v0.5.0](https://github.com/browseros-ai/browserclaw-claude-desktop/releases/download/v0.5.0/browseros-neo-0.5.0.mcpb).
 2. In Claude Desktop, open Settings.
 3. In Settings, click Extensions in the sidebar, under the Desktop app section.
 4. Click Advanced settings.
@@ -28,7 +28,7 @@ Claude can now use BrowserOS neo to open sites, sign in, click through pages, an
 
 **Claude does not use BrowserOS neo:** Ask it to "use BrowserOS neo" for the task.
 
-**The extension does not load:** Open BrowserOS neo at least once, then [download and reinstall the latest extension](https://cdn.browseros.com/artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb).
+**The extension does not load:** Open BrowserOS neo at least once, then [download and reinstall extension v0.5.0](https://github.com/browseros-ai/browserclaw-claude-desktop/releases/download/v0.5.0/browseros-neo-0.5.0.mcpb).
 
 ## Privacy
 
