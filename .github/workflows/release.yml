@@ -1,10 +1,5 @@
 name: Release
 
-# Build the .mcpb archive when a release tag is pushed (e.g. v0.1.0) and
-# attach it to a new GitHub Release. The pack script and Node toolchain
-# replicate the dev-machine setup; the workflow is intentionally thin so
-# anything that builds locally also builds in CI.
-
 on:
   push:
     tags:
@@ -31,10 +26,31 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
-          # Warm the npm cache from package-lock.json so re-releases skip
-          # the cold install. Harmless before PR #3 lands; the cache simply
-          # has nothing to restore on the first run.
           cache: 'npm'
+
+      - name: Verify R2 configuration
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if ((${#missing[@]})); then
+            echo "::error::Missing required R2 secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Install AWS CLI
+        run: |
+          python3 -m pip install --user awscli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify tag matches manifest.json version
         # Tag must equal "v" + manifest.json's `version`. Catches the
@@ -66,6 +82,82 @@ jobs:
           SIZE=$(du -h "${ARCHIVE}" | cut -f1)
           echo "Built ${ARCHIVE} (${SIZE})."
 
+      - name: Upload immutable archive to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r '.version' manifest.json)
+          archive="build/browserclaw-${version}.mcpb"
+          key="artifacts/browserclaw-claude-desktop/${version}/browserclaw-${version}.mcpb"
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          release_sha=$(git rev-parse HEAD)
+          sha256=$(sha256sum "$archive" | cut -d ' ' -f1)
+          size=$(wc -c < "$archive" | tr -d '[:space:]')
+          disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
+          metadata_path="$RUNNER_TEMP/browserclaw-r2-head.json"
+
+          if ! aws s3api head-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$key" > "$metadata_path" 2>/dev/null; then
+            if ! aws s3api put-object \
+              --endpoint-url "$endpoint" \
+              --region auto \
+              --bucket "$R2_BUCKET" \
+              --key "$key" \
+              --body "$archive" \
+              --content-type application/zip \
+              --content-disposition "$disposition" \
+              --metadata "component=artifacts/browserclaw-claude-desktop,target=universal,version=${version},release-sha=${release_sha},sha256=${sha256}" \
+              --if-none-match '*' >/dev/null; then
+              echo "Immutable upload did not complete; checking for a matching object."
+            fi
+            aws s3api head-object \
+              --endpoint-url "$endpoint" \
+              --region auto \
+              --bucket "$R2_BUCKET" \
+              --key "$key" > "$metadata_path"
+          fi
+
+          if ! jq -e \
+            --arg component 'artifacts/browserclaw-claude-desktop' \
+            --arg disposition "$disposition" \
+            --arg release_sha "$release_sha" \
+            --arg sha256 "$sha256" \
+            --arg version "$version" \
+            --argjson size "$size" \
+            '.ContentLength == $size and .ContentType == "application/zip" and .ContentDisposition == $disposition and .Metadata.component == $component and .Metadata.target == "universal" and .Metadata.version == $version and .Metadata["release-sha"] == $release_sha and .Metadata.sha256 == $sha256' \
+            "$metadata_path" >/dev/null; then
+            echo "::error::Immutable R2 object does not match ${archive}: ${key}"
+            exit 1
+          fi
+
+          canonical="$RUNNER_TEMP/browserclaw-r2-${version}.mcpb"
+          aws s3api get-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$key" \
+            "$canonical" >/dev/null
+          canonical_sha=$(sha256sum "$canonical" | cut -d ' ' -f1)
+          if [ "$canonical_sha" != "$sha256" ]; then
+            echo "::error::Immutable R2 object content does not match ${archive}: ${key}"
+            exit 1
+          fi
+
+          {
+            echo '### BrowserClaw Claude Desktop R2 publish'
+            echo
+            echo "- Versioned: \`https://cdn.browseros.com/${key}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Create GitHub Release and upload archive
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
@@ -75,3 +167,52 @@ jobs:
           # Mark prereleases when the tag has a -suffix (e.g. v0.1.0-rc.1)
           # so users on the stable channel are not nudged to install them.
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Promote stable archive to latest on R2
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r '.version' manifest.json)
+          source="artifacts/browserclaw-claude-desktop/${version}/browserclaw-${version}.mcpb"
+          destination='artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb'
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          release_sha=$(git rev-parse HEAD)
+          sha256=$(sha256sum "build/browserclaw-${version}.mcpb" | cut -d ' ' -f1)
+          size=$(wc -c < "build/browserclaw-${version}.mcpb" | tr -d '[:space:]')
+          disposition="attachment; filename=\"browserclaw-${version}.mcpb\""
+
+          aws s3api copy-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --copy-source "${R2_BUCKET}/${source}" \
+            --metadata-directive COPY \
+            --key "$destination" >/dev/null
+
+          metadata_path="$RUNNER_TEMP/browserclaw-r2-latest-head.json"
+          aws s3api head-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$destination" > "$metadata_path"
+          if ! jq -e \
+            --arg component 'artifacts/browserclaw-claude-desktop' \
+            --arg disposition "$disposition" \
+            --arg release_sha "$release_sha" \
+            --arg sha256 "$sha256" \
+            --arg version "$version" \
+            --argjson size "$size" \
+            '.ContentLength == $size and .ContentType == "application/zip" and .ContentDisposition == $disposition and .Metadata.component == $component and .Metadata.target == "universal" and .Metadata.version == $version and .Metadata["release-sha"] == $release_sha and .Metadata.sha256 == $sha256' \
+            "$metadata_path" >/dev/null; then
+            echo "::error::Latest R2 object does not match ${source}: ${destination}"
+            exit 1
+          fi
+
+          echo "- Latest: \`https://cdn.browseros.com/${destination}\`" >> "$GITHUB_STEP_SUMMARY"
