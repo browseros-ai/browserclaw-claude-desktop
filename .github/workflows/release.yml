@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-browserclaw-claude-desktop
+  queue: max
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -27,6 +31,30 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Verify R2 configuration
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if ((${#missing[@]})); then
+            echo "::error::Missing required R2 secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Install AWS CLI
+        run: |
+          python3 -m pip install --user awscli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify tag matches manifest.json version
         # Tag must equal "v" + manifest.json's `version`. Catches the
@@ -58,6 +86,86 @@ jobs:
           SIZE=$(du -h "${ARCHIVE}" | cut -f1)
           echo "Built ${ARCHIVE} (${SIZE})."
 
+      - name: Upload immutable archive to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r '.version' manifest.json)
+          archive="build/browseros-neo-${version}.mcpb"
+          key="artifacts/browserclaw-claude-desktop/${version}/browserclaw-${version}.mcpb"
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          release_sha=$(git rev-parse HEAD)
+          local_sha=$(sha256sum "$archive" | cut -d ' ' -f1)
+          disposition="attachment; filename=\"browseros-neo-${version}.mcpb\""
+          metadata_path="$RUNNER_TEMP/browserclaw-r2-head.json"
+
+          if ! aws s3api head-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$key" > "$metadata_path" 2>/dev/null; then
+            if ! aws s3api put-object \
+              --endpoint-url "$endpoint" \
+              --region auto \
+              --bucket "$R2_BUCKET" \
+              --key "$key" \
+              --body "$archive" \
+              --content-type application/zip \
+              --content-disposition "$disposition" \
+              --metadata "component=artifacts/browserclaw-claude-desktop,target=universal,version=${version},release-sha=${release_sha},sha256=${local_sha}" \
+              --if-none-match '*' >/dev/null; then
+              echo "Immutable upload did not complete; checking for a matching object."
+            fi
+            aws s3api head-object \
+              --endpoint-url "$endpoint" \
+              --region auto \
+              --bucket "$R2_BUCKET" \
+              --key "$key" > "$metadata_path"
+          fi
+
+          if ! jq -e \
+            --arg component 'artifacts/browserclaw-claude-desktop' \
+            --arg disposition "$disposition" \
+            --arg release_sha "$release_sha" \
+            --arg version "$version" \
+            '.ContentLength > 0 and .ContentType == "application/zip" and .ContentDisposition == $disposition and .Metadata.component == $component and .Metadata.target == "universal" and .Metadata.version == $version and .Metadata["release-sha"] == $release_sha and ((.Metadata.sha256 // "") | test("^[0-9a-f]{64}$"))' \
+            "$metadata_path" >/dev/null; then
+            echo "::error::Immutable R2 object has an invalid release binding: ${key}"
+            exit 1
+          fi
+
+          canonical="$RUNNER_TEMP/browserclaw-r2-${version}.mcpb"
+          aws s3api get-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$key" \
+            "$canonical" >/dev/null
+          stored_sha=$(jq -r '.Metadata.sha256' "$metadata_path")
+          stored_size=$(jq -r '.ContentLength' "$metadata_path")
+          canonical_sha=$(sha256sum "$canonical" | cut -d ' ' -f1)
+          canonical_size=$(wc -c < "$canonical" | tr -d '[:space:]')
+          if [ "$canonical_sha" != "$stored_sha" ] || [ "$canonical_size" != "$stored_size" ]; then
+            echo "::error::Immutable R2 content does not match its release binding: ${key}"
+            exit 1
+          fi
+          if [ "$canonical_sha" != "$local_sha" ]; then
+            echo "Reusing canonical R2 bytes for this source-bound release."
+          fi
+          cp "$canonical" "$archive"
+
+          {
+            echo '### BrowserClaw Claude Desktop R2 publish'
+            echo
+            echo "- Versioned: \`https://cdn.browseros.com/${key}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Create GitHub Release and upload archive
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
@@ -65,3 +173,75 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Promote stable archive to latest on R2
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r '.version' manifest.json)
+          source="artifacts/browserclaw-claude-desktop/${version}/browserclaw-${version}.mcpb"
+          destination='artifacts/browserclaw-claude-desktop/latest/browserclaw.mcpb'
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          release_sha=$(git rev-parse HEAD)
+          sha256=$(sha256sum "build/browseros-neo-${version}.mcpb" | cut -d ' ' -f1)
+          size=$(wc -c < "build/browseros-neo-${version}.mcpb" | tr -d '[:space:]')
+          disposition="attachment; filename=\"browseros-neo-${version}.mcpb\""
+
+          current_path="$RUNNER_TEMP/browserclaw-r2-current-latest.json"
+          current_error="$RUNNER_TEMP/browserclaw-r2-current-latest.err"
+          if aws s3api head-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$destination" > "$current_path" 2> "$current_error"; then
+            current_version=$(jq -r '.Metadata.version // empty' "$current_path")
+            if ! [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Latest R2 object has an invalid stable version: ${current_version:-missing}"
+              exit 1
+            fi
+            newest=$(printf '%s\n%s\n' "$current_version" "$version" | sort -V | tail -n 1)
+            if [ "$newest" != "$version" ]; then
+              echo "Latest remains at ${current_version}; refusing to promote older release ${version}."
+              echo "- Latest unchanged: \`https://cdn.browseros.com/${destination}\` is newer (${current_version})" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          elif ! grep -Eq '\((404|NoSuchKey|NotFound)\)' "$current_error"; then
+            echo "::error::Unable to inspect the current latest R2 object; refusing to overwrite it."
+            exit 1
+          fi
+
+          aws s3api copy-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --copy-source "${R2_BUCKET}/${source}" \
+            --metadata-directive COPY \
+            --key "$destination" >/dev/null
+
+          metadata_path="$RUNNER_TEMP/browserclaw-r2-latest-head.json"
+          aws s3api head-object \
+            --endpoint-url "$endpoint" \
+            --region auto \
+            --bucket "$R2_BUCKET" \
+            --key "$destination" > "$metadata_path"
+          if ! jq -e \
+            --arg component 'artifacts/browserclaw-claude-desktop' \
+            --arg disposition "$disposition" \
+            --arg release_sha "$release_sha" \
+            --arg sha256 "$sha256" \
+            --arg version "$version" \
+            --argjson size "$size" \
+            '.ContentLength == $size and .ContentType == "application/zip" and .ContentDisposition == $disposition and .Metadata.component == $component and .Metadata.target == "universal" and .Metadata.version == $version and .Metadata["release-sha"] == $release_sha and .Metadata.sha256 == $sha256' \
+            "$metadata_path" >/dev/null; then
+            echo "::error::Latest R2 object does not match ${source}: ${destination}"
+            exit 1
+          fi
+
+          echo "- Latest: \`https://cdn.browseros.com/${destination}\`" >> "$GITHUB_STEP_SUMMARY"
